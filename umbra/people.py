@@ -31,15 +31,16 @@ HEAD_C = 0.172          # neck base -> head centre
 
 _LAYOUT = [("hips", 3), ("lift", 1), ("spine", 3), ("head", 3), ("arm_l", 3), ("arm_r", 3), ("elbow_l", 1),
            ("elbow_r", 1), ("leg_l", 3), ("leg_r", 3), ("knee_l", 1), ("knee_r", 1), ("foot_l", 1), ("foot_r", 1),
-           ("hand_l", 5), ("hand_r", 5)]             # x, y, z, weight, surface height (0 = free in the air)
+           ("hand_l", 5), ("hand_r", 5),             # x, y, z, weight, surface height (0 = free in the air)
+           ("ankle_l", 4), ("ankle_r", 4)]           # foot IK: (out, forward, height above the floor, weight), relative to the hip
 IDX, _n = {}, 0
 for _k, _c in _LAYOUT:
     IDX[_k] = slice(_n, _n + _c)
     _n += _c
 NPOSE = _n
 
-_REST = {"arm_l": (0, 7, 0), "arm_r": (0, 7, 0), "elbow_l": 9, "elbow_r": 9, "leg_l": (0, 2.2, 0), "leg_r": (0, 2.2, 0),
-         "head": (3, 0, 0), "spine": (1.5, 0, 0)}
+_REST = {"arm_l": (-3, 7, 0), "arm_r": (-3, 7, 0), "elbow_l": 6, "elbow_r": 6, "leg_l": (0, 2.2, 0), "leg_r": (0, 2.2, 0),
+         "head": (-5, 0, 0), "spine": (-1.0, 0, 0)}          # the base mesh stands with its head a little forward
 
 POSES = {
     "stand": {},
@@ -50,8 +51,8 @@ POSES = {
     "arms_open": {"arm_l": (0, 82, 0), "arm_r": (0, 82, 0), "elbow_l": 4, "elbow_r": 4, "head": (6, 0, 0)},
     "sit": {"lift": -0.42, "spine": (4, 0, 0), "leg_l": (86, 5), "leg_r": (86, 5), "knee_l": 88, "knee_r": 88,
             "arm_l": (28, 6), "arm_r": (28, 6), "elbow_l": 55, "elbow_r": 55},
-    "sit_back": {"lift": -0.42, "hips": (-14, 0, 0), "spine": (-4, 0, 0), "head": (10, 0, 0), "leg_l": (96, 9),
-                 "leg_r": (100, 9), "knee_l": 80, "knee_r": 70, "arm_l": (20, 14), "arm_r": (20, 14), "elbow_l": 50, "elbow_r": 50},
+    "sit_back": {"lift": -0.42, "hips": (-14, 0, 0), "spine": (-4, 0, 0), "head": (10, 0, 0), "leg_l": (82, 9),
+                 "leg_r": (85, 9), "knee_l": 62, "knee_r": 56, "arm_l": (20, 14), "arm_r": (20, 14), "elbow_l": 50, "elbow_r": 50},
     "sit_lean": {"lift": -0.42, "hips": (10, 0, 0), "spine": (22, 0, 0), "head": (-12, 0, 0), "leg_l": (78, 7),
                  "leg_r": (78, 7), "knee_l": 95, "knee_r": 95, "arm_l": (52, 10, 20), "arm_r": (52, 10, 20), "elbow_l": 70, "elbow_r": 70},
     "sit_table": {"lift": -0.42, "hips": (4, 0, 0), "spine": (8, 0, 0), "leg_l": (86, 6), "leg_r": (86, 6),
@@ -68,12 +69,12 @@ POSES = {
     "examine": {"lift": -0.44, "hips": (30, 0, 0), "spine": (22, 0, 0), "head": (2, 0, 0), "leg_l": (112, 12),
                 "leg_r": (38, 6), "knee_l": 128, "knee_r": 132, "foot_r": -40, "foot_l": 10,
                 "arm_l": (40, 10), "elbow_l": 70, "arm_r": (66, 6), "elbow_r": 24},
-    "lie": {"hips": (-90, 0, 0), "lift": -0.83, "arm_l": (0, 24), "arm_r": (0, 16), "leg_l": (0, 6), "leg_r": (0, 9),
+    "lie": {"hips": (-90, 0, 0), "lift": -0.77, "arm_l": (0, 24), "arm_r": (0, 16), "leg_l": (0, 6), "leg_r": (0, 9),
             "elbow_l": 12, "elbow_r": 20, "knee_r": 8},
-    "lie_front": {"hips": (90, 0, 0), "lift": -0.83, "head": (0, 0, 55), "arm_l": (150, 30), "arm_r": (40, 30),
-                  "elbow_l": 70, "elbow_r": 60, "leg_l": (0, 8), "leg_r": (0, 12), "knee_r": 25},
-    "sprawl": {"hips": (-90, 0, 12), "lift": -0.83, "head": (0, 10, -30), "arm_l": (20, 70), "arm_r": (-10, 38),
-               "elbow_l": 50, "elbow_r": 30, "leg_l": (6, 20), "leg_r": (-4, 10), "knee_l": 40, "knee_r": 10},
+    "lie_front": {"hips": (90, 0, 0), "lift": -0.775, "head": (-6, 0, 55), "arm_l": (8, 150), "arm_r": (8, 42),
+                  "elbow_l": 70, "elbow_r": 60, "leg_l": (-2, 8), "leg_r": (-2, 12), "knee_r": 25},
+    "sprawl": {"hips": (-90, 0, 12), "lift": -0.77, "head": (0, 10, -30), "arm_l": (16, 70), "arm_r": (5, 38),
+               "elbow_l": 50, "elbow_r": 30, "leg_l": (8, 20), "leg_r": (3, 10), "knee_l": 40, "knee_r": 10},
     "arms_crossed": {"hand_l": (0.10, 0.17, 0.23), "hand_r": (-0.10, 0.19, 0.20), "spine": (-2, 0, 0)},
     "hands_hips": {"hand_l": (-0.20, 0.03, 0.02), "hand_r": (0.20, 0.03, 0.02)},
     "hands_up": {"arm_l": (20, 150), "arm_r": (20, 150), "elbow_l": 35, "elbow_r": 35, "head": (4, 0, 0)},
@@ -176,7 +177,7 @@ def _apply(v, d):
 
 def _mirror(v):
     o = v.copy()
-    for a in ("arm", "elbow", "leg", "knee", "foot", "hand"):
+    for a in ("arm", "elbow", "leg", "knee", "foot", "hand", "ankle"):
         o[IDX[a + "_l"]], o[IDX[a + "_r"]] = v[IDX[a + "_r"]], v[IDX[a + "_l"]]
     for k in ("hand_l", "hand_r"):
         o[IDX[k].start] *= -1
@@ -189,20 +190,22 @@ def _mirror(v):
 # ----------------------------------------------------------------------------- locomotion
 # v = natural speed (m/s), stride = length of one full cycle (two steps), angles in degrees.
 GAITS = {
-    #            speed  stride  hip   knee  arm   elbow  e_sw  lean  bob    twist sway  stance
-    "stroll": dict(v=0.85, stride=1.15, leg=19, knee=48, arm=13, elb=8, esw=8, lean=1.0, bob=0.018, twist=4, sway=3.5, stance=0.62),
-    "walk":   dict(v=1.25, stride=1.45, leg=25, knee=60, arm=21, elb=10, esw=14, lean=3.0, bob=0.028, twist=6, sway=3.0, stance=0.60),
-    "march":  dict(v=1.5, stride=1.5, leg=30, knee=52, arm=38, elb=2, esw=4, lean=0.0, bob=0.022, twist=3, sway=1.2, stance=0.60),
-    "carry":  dict(v=1.05, stride=1.25, leg=22, knee=54, arm=0, elb=0, esw=0, lean=-2.0, bob=0.022, twist=3, sway=3.5, stance=0.62),
-    "sneak":  dict(v=0.7, stride=0.95, leg=22, knee=62, arm=5, elb=64, esw=4, lean=15.0, bob=0.012, twist=5, sway=2.0, stance=0.66, lift=-0.12,
-                   crouch=42, arms=(26, 14), head=-12),
-    "limp":   dict(v=0.75, stride=0.95, leg=20, knee=46, arm=14, elb=14, esw=8, lean=5.0, bob=0.02, twist=4, sway=4.0, stance=0.62, limp=0.5),
-    "trudge": dict(v=0.8, stride=1.05, leg=19, knee=42, arm=7, elb=6, esw=4, lean=6.0, bob=0.02, twist=3, sway=5.0, stance=0.64, head=16),
-    "drunk":  dict(v=0.7, stride=1.0, leg=21, knee=54, arm=16, elb=18, esw=10, lean=4.0, bob=0.024, twist=6, sway=6.0, stance=0.62, weave=0.3,
-                   wobble=9.0),
-    "jog":    dict(v=2.6, stride=2.0, leg=31, knee=84, arm=30, elb=80, esw=8, lean=8.0, bob=0.045, twist=8, sway=2.0, stance=0.42, flight=True),
-    "run":    dict(v=4.2, stride=2.9, leg=43, knee=104, arm=46, elb=88, esw=8, lean=13.0, bob=0.06, twist=10, sway=2.0, stance=0.36, flight=True),
-    "sprint": dict(v=6.5, stride=3.8, leg=53, knee=120, arm=60, elb=94, esw=6, lean=20.0, bob=0.07, twist=12, sway=1.5, stance=0.30, flight=True),
+    # v = natural speed (m/s); stride = one full cycle (two steps), m; stance = share of the cycle a foot is down;
+    # clear = how high the swinging ankle lifts, m; toe = heel peel-off angle; lift = how much the hips ride below
+    # standing height (soft knees - it is what gives the legs room to reach); the rest are upper-body amplitudes.
+    "stroll": dict(v=0.85, stride=1.05, stance=0.60, clear=0.07, toe=22, lift=-0.03, arm=13, elb=2, esw=7, lean=1.0, bob=0.014, twist=4, sway=3.5),
+    "walk":   dict(v=1.25, stride=1.25, stance=0.56, clear=0.09, toe=30, lift=-0.045, arm=22, elb=3, esw=12, lean=3.0, bob=0.02, twist=6, sway=3.0),
+    "march":  dict(v=1.4, stride=1.25, stance=0.55, clear=0.22, toe=20, lift=-0.05, arm=38, elb=2, esw=4, lean=0.0, bob=0.016, twist=3, sway=1.2),
+    "carry":  dict(v=1.05, stride=1.1, stance=0.60, clear=0.08, toe=24, lift=-0.035, arm=0, elb=0, esw=0, lean=-2.0, bob=0.016, twist=3, sway=3.5),
+    "sneak":  dict(v=0.65, stride=0.85, stance=0.64, clear=0.17, toe=12, lift=-0.13, arm=5, elb=64, esw=4, lean=15.0, bob=0.01, twist=5, sway=2.0,
+                   arms=(26, 14), head=-12),
+    "limp":   dict(v=0.7, stride=0.9, stance=0.62, clear=0.07, toe=20, lift=-0.03, arm=14, elb=14, esw=8, lean=5.0, bob=0.016, twist=4, sway=4.0, limp=0.5),
+    "trudge": dict(v=0.75, stride=0.95, stance=0.62, clear=0.05, toe=18, lift=-0.035, arm=7, elb=6, esw=4, lean=6.0, bob=0.016, twist=3, sway=5.0, head=16),
+    "drunk":  dict(v=0.65, stride=0.92, stance=0.62, clear=0.09, toe=24, lift=-0.03, arm=16, elb=18, esw=10, lean=4.0, bob=0.018, twist=6, sway=6.0,
+                   weave=0.3, wobble=9.0),
+    "jog":    dict(v=2.6, stride=1.8, stance=0.42, clear=0.2, toe=34, lift=-0.07, arm=30, elb=80, esw=8, lean=8.0, bob=0.03, twist=8, sway=2.0, flight=True),
+    "run":    dict(v=4.2, stride=2.4, stance=0.32, clear=0.3, toe=45, lift=-0.09, arm=46, elb=88, esw=8, lean=13.0, bob=0.04, twist=10, sway=2.0, flight=True),
+    "sprint": dict(v=6.5, stride=3.1, stance=0.27, clear=0.4, toe=48, lift=-0.10, arm=60, elb=94, esw=6, lean=20.0, bob=0.045, twist=12, sway=1.5, flight=True),
 }
 
 
@@ -218,51 +221,64 @@ def _bump(ph, a, peak, b):
     return _sm((ph - a) / (peak - a)) if ph < peak else _sm((b - ph) / (b - peak))
 
 
-def _gait_pose(G, cyc, env, amp, add, tt, seed):
+def _gait_pose(G, cyc, env, amp, add, tt, seed, sk=None):
     """One instant of a walk / run cycle. cyc = cycles travelled (fractional), env = 0..1 blend, amp = stride scale.
-    Each leg has a stance phase (foot on the ground, hip sweeping back at constant speed so the foot does not slide)
-    and a swing phase (knee folds, foot clears, leg reaches forward)."""
+
+    Each foot follows a path relative to the hips: during stance it slides straight back at exactly the speed the
+    body moves forward (so it is pinned to the ground), then the heel peels off, the foot arcs forward and lands.
+    Position and speed are continuous at both hand-overs. The leg itself is solved by IK from that path, so knees
+    and hips always bend the anatomical way and the sole never slips or sinks."""
+    sk = sk or default_sk()
     st = G["stance"]
-    A, Ab = G["leg"] * amp, G["leg"] * amp * (0.78 if G.get("flight") else 0.92)
-    for side, off, sg in (("l", 0.0, -1.0), ("r", 0.5, 1.0)):
-        ph = (cyc + off) % 1.0
-        k = env
-        if G.get("limp") and side == "r":
-            k *= G["limp"]
-        if ph < st:                                   # stance: heel strike (+A) -> toe off (-Ab)
-            u = ph / st
-            hip = A - (A + Ab) * u
-            knee = 5 + (16 if not G.get("flight") else 34) * _bump(u, 0.0, 0.2, 0.55) + 30 * _sm((u - 0.78) / 0.22)
-            foot = 14 * (1 - _sm(u / 0.14)) - 26 * _sm((u - 0.72) / 0.28)
-        else:                                         # swing: fold, clear the ground, reach
-            u = (ph - st) / (1 - st)
-            hip = -Ab + (A + Ab) * _sm(u * 1.04) + 3 * math.sin(math.pi * u)
-            knee = 35 * (1 - _sm(u / 0.3)) + G["knee"] * _bump(u, 0.0, 0.32, 0.98) + 5 * _sm(u)
-            foot = -26 * (1 - _sm(u / 0.5)) + 14 * _sm((u - 0.6) / 0.4)
-        cr = G.get("crouch", 0.0)                     # bent-knee gaits: fold the leg so the lowered hips still reach the floor
-        add("leg_" + side, ((hip * k + cr * 0.5 * env), 0, 0))
-        add("knee_" + side, knee * k + cr * env)
-        add("foot_" + side, foot * k + cr * 0.5 * env)
-        w = 2 * math.pi * ph
-        swing = -math.cos(w)                          # arm opposes the leg on its own side
-        add("arm_" + side, (G["arm"] * amp * swing * env, 0, 0))
-        add("elbow_" + side, (G["elb"] + G["esw"] * max(0.0, swing)) * env)
-        if G.get("arms"):                             # carried forward (sneaking)
-            add("arm_" + side, (G["arms"][0] * env, G["arms"][1] * env, 0))
+    stride = G["stride"] * amp
+    D = stride * st                                   # how far a planted foot travels backwards under the hips
     w = 2 * math.pi * cyc
     lift = G.get("lift", 0.0)
-    if G.get("flight"):
-        bob = G["bob"] * (math.sin(2 * w - 0.4))      # up in flight, down at mid-stance
-    else:
-        bob = -G["bob"] * (0.5 + 0.5 * math.cos(2 * w))   # lowest when both feet are down, highest at mid-stance
+    flight = G.get("flight", False)
+    bob = G["bob"] * math.sin(2 * w - 0.4) if flight else -G["bob"] * (0.5 + 0.5 * math.cos(2 * w))
+    hz = sk.HIP_H + sk.hip[2] - sk.ankle_h + lift + (G["bob"] * math.sin(-0.4) if flight else -G["bob"])
+    reach = (sk.L_THIGH + sk.L_SHIN) * 0.985
+    yf = min(math.sqrt(max(reach * reach - hz * hz, 0.01)) * 0.93, D * 0.56)     # where the heel lands, ahead of the hip
+    yb = yf - D
+    toe, clear = G["toe"], G["clear"] * (0.7 + 0.3 * amp)
+
+    def peel_at(k):                                    # the foot rolls over its ball: the ankle rises and moves forward
+        th = math.radians(toe * k)
+        return 0.13 * (1 - math.cos(th)) + 0.09 * math.sin(th), 0.13 * math.sin(th) - 0.09 * (1 - math.cos(th))
+    y_off, h_off = peel_at(1.0)
+    for side, off in (("l", 0.0), ("r", 0.5)):
+        ph = (cyc + off) % 1.0
+        k = env
+        if ph < st:                                    # stance
+            u = ph / st
+            peel = _sm((u - 0.62) / 0.38)
+            dy, h = peel_at(peel)
+            y = yf - D * u + dy
+            pitch = 9.0 * (1 - _sm(u / 0.18)) - toe * peel
+        else:                                          # swing: cubic that leaves and arrives at the stance speed
+            u = (ph - st) / (1 - st)
+            m = -D / st * (1 - st)
+            u2, u3 = u * u, u * u * u
+            y = (2 * u3 - 3 * u2 + 1) * (yb + y_off) + (u3 - 2 * u2 + u) * m + (-2 * u3 + 3 * u2) * yf + (u3 - u2) * m
+            h = h_off * (1 - _sm(u / 0.4)) + clear * math.sin(math.pi * u) ** 2
+            pitch = -toe + (toe + 9.0) * _sm(u)
+            if G.get("limp") and side == "r":
+                h *= 0.45
+        add("ankle_" + side, (0.02 * k, y * k, h * k, k))
+        add("foot_" + side, pitch * k)
+        swing = -math.cos(2 * math.pi * ph)            # the arm opposes the leg on its own side
+        add("arm_" + side, (G["arm"] * amp * swing * env, 0, 0))
+        add("elbow_" + side, (G["elb"] + G["esw"] * max(0.0, swing)) * env)
+        if G.get("arms"):                              # carried forward (sneaking)
+            add("arm_" + side, (G["arms"][0] * env, G["arms"][1] * env, 0))
     if G.get("limp"):
-        bob -= 0.035 * max(0.0, math.sin(w + math.pi))
+        bob -= 0.03 * max(0.0, math.sin(w + math.pi))
         add("spine", (0, -7 * max(0.0, math.sin(w + math.pi)) * env, 0))
     add("lift", (bob + lift) * env)
     sway = G["sway"]
     add("hips", (G["lean"] * env, sway * math.sin(w) * env, -G["twist"] * 0.6 * math.cos(w) * env))
     add("spine", (G["lean"] * 0.5 * env, -sway * 0.8 * math.sin(w) * env, G["twist"] * 1.4 * math.cos(w) * env))
-    add("head", ((G.get("head", 0.0) - G["lean"] * 0.7 + 1.2 * math.sin(2 * w)) * env, 0, -G["twist"] * 0.8 * math.cos(w) * env))
+    add("head", ((G.get("head", 0.0) - G["lean"] * 0.7 + 1.0 * math.sin(2 * w)) * env, 0, -G["twist"] * 0.8 * math.cos(w) * env))
     if G.get("wobble"):
         q = G["wobble"]
         add("spine", (0.4 * q * noise1(tt * 1.3, seed + 2) * env, q * noise1(tt * 0.9, seed) * env, 0))
@@ -386,15 +402,33 @@ def _qlerp(Ra, Rb, w):
                      [2 * (x * z - y * w_), 2 * (y * z + x * w_), 1 - 2 * (x * x + y * y)]])
 
 
-def solve_pose(v, world=None, reach=None, look=None):
-    """Pose vector -> {part: 4x4 local matrix (relative to its parent part)}.
-    world: 4x4 of the root (for world-space reach/look). reach: {'l': (target_world, w)}, look: (target_world, w)."""
+LIMITS = {"elbow_l": (0, 150), "elbow_r": (0, 150), "knee_l": (0, 150), "knee_r": (0, 150), "foot_l": (-55, 40), "foot_r": (-55, 40)}
+LIMITS3 = {"head": ((-55, 55), (-40, 40), (-85, 85)), "spine": ((-35, 70), (-40, 40), (-50, 50))}
+
+
+def default_sk():
+    from . import body
+    return body.load("male")["sk"]
+
+
+def solve_pose(v, sk=None, world=None, reach=None, look=None):
+    """Pose vector -> {part: 4x4 local matrix (relative to its parent part)} for the skeleton `sk`.
+    world: 4x4 of the root (for world-space reach/look). reach: {'l': (target_world, w)}, look: (target_world, w).
+    Joints are clamped to anatomical ranges: elbows and knees are hinges that only fold one way."""
+    sk = sk or default_sk()
+    v = np.array(v, dtype=float)
+    for k, (lo, hi) in LIMITS.items():
+        v[IDX[k]] = np.clip(v[IDX[k]], lo, hi)
+    for k, lim in LIMITS3.items():
+        for i, (lo, hi) in enumerate(lim):
+            v[IDX[k].start + i] = min(max(v[IDX[k].start + i], lo), hi)
+    L_UARM, L_FARM, L_HAND, L_THIGH, L_SHIN = sk.L_UARM, sk.L_FARM, sk.L_HAND, sk.L_THIGH, sk.L_SHIN
     M = {}
     hips = v[IDX["hips"]]
-    P = tr((0, 0, HIP_H + v[IDX["lift"]][0]))
+    P = tr((0, 0, sk.HIP_H + v[IDX["lift"]][0]))
     P[:3, :3] = _up_rot(hips)
     M["pelvis"] = P
-    C = tr((0, 0, WAIST))
+    C = tr(sk.waist)
     C[:3, :3] = _up_rot(v[IDX["spine"]])
     M["chest"] = C
     chest_w = None
@@ -404,27 +438,28 @@ def solve_pose(v, world=None, reach=None, look=None):
     hd = np.array(v[IDX["head"]], dtype=float)
     if look is not None and look[1] > 1e-3 and chest_w is not None:
         loc = np.linalg.inv(chest_w) @ np.append(look[0], 1.0)
-        d = loc[:3] - np.array([0, 0, NECK + HEAD_C])
+        d = loc[:3] - (sk.neck + sk.head_c)
         ln = np.linalg.norm(d)
         if ln > 1e-6:
             yaw = max(-80, min(80, math.degrees(math.atan2(-d[0], d[1]))))
             pit = max(-45, min(50, math.degrees(math.asin(max(-1, min(1, d[2] / ln))))))
             w = look[1]
             hd = np.array([hd[0] + (-pit - hd[0]) * w, hd[1] * (1 - w * 0.5), hd[2] + (yaw - hd[2]) * w])
-    Hm = tr((0, 0, NECK))
+    Hm = tr(sk.neck)
     Hm[:3, :3] = _up_rot(hd)
     M["head"] = Hm
     for side, sgn in (("l", -1.0), ("r", 1.0)):
         # ---- arm
-        S = np.array([sgn * SHOULDER[0], SHOULDER[1], SHOULDER[2]])
+        S = np.array([sgn * sk.shoulder[0], sk.shoulder[1], sk.shoulder[2]])
         Ru = _limb_rot(v[IDX["arm_" + side]], sgn)
         flex = float(v[IDX["elbow_" + side]][0])
-        b = L_FARM + L_HAND * 0.6
+        b = L_FARM + L_HAND * 0.5
         hv = v[IDX["hand_" + side]]
         w = float(hv[3])
         fk_hand = S + Ru @ np.array([0, 0, -L_UARM]) + Ru @ _r3(rx(flex)) @ np.array([0, 0, -b])
-        T = fk_hand + (np.array(hv[:3]) - fk_hand) * min(w, 1.0) if w > 1e-3 else fk_hand
-        surf, hand_rot, pole = float(hv[4]), None, norm(np.array([sgn * 0.75, -0.55, -0.45]))
+        tgt = np.array(hv[:3]) / max(w, 1e-6)
+        T = fk_hand + (tgt - fk_hand) * min(w, 1.0) if w > 1e-3 else fk_hand
+        surf, hand_rot, pole = float(hv[4]) / max(w, 1e-6), None, norm(np.array([sgn * 0.75, -0.55, -0.45]))
         if surf > 0 and w > 1e-3:
             # Resting on a surface (table top, desk, floor): the palm lies flat ON it, the wrist stays above it and the
             # forearm comes in level, so nothing dips through the top or its edge.
@@ -432,12 +467,12 @@ def solve_pose(v, world=None, reach=None, look=None):
             sc = float(np.linalg.norm(cw[:3, 0]))
             rc = cw[:3, :3] / sc
             floor_z = float(world[2, 3]) if world is not None else 0.0
-            Tw = cw[:3, :3] @ np.array(hv[:3]) + cw[:3, 3]
+            Tw = cw[:3, :3] @ tgt + cw[:3, 3]
             Tw[2] = floor_z + (surf + 0.026) * sc
             Sw = cw[:3, :3] @ S + cw[:3, 3]
             fw = np.array([Tw[0] - Sw[0], Tw[1] - Sw[1], 0.0])
             fw = fw / max(float(np.linalg.norm(fw)), 1e-6)
-            wrist_w = Tw - fw * 0.085 * sc + np.array([0, 0, 0.012 * sc])
+            wrist_w = Tw - fw * L_HAND * 0.5 * sc + np.array([0, 0, 0.012 * sc])
             wrist = rc.T @ (wrist_w - cw[:3, 3]) / sc
             T = fk_hand + (wrist - fk_hand) * min(w, 1.0)
             b = L_FARM
@@ -456,7 +491,7 @@ def solve_pose(v, world=None, reach=None, look=None):
             k = min(w, 1.0)
             k = k * k * (3 - 2 * k)
             Ru = _qlerp(Ru, Ri, k)
-            flex = flex + (fi - flex) * k
+            flex = min(flex + (fi - flex) * k, 150.0)
         U = tr(S)
         U[:3, :3] = Ru
         M["uarm_" + side] = U
@@ -468,11 +503,61 @@ def solve_pose(v, world=None, reach=None, look=None):
             Hd[:3, :3] = _qlerp(np.eye(3), fore.T @ hand_rot, k)
         M["hand_" + side] = Hd
         # ---- leg
-        Tm = tr((sgn * HIP[0], HIP[1], HIP[2]))
-        Tm[:3, :3] = _limb_rot(v[IDX["leg_" + side]], sgn)
+        Hp = np.array([sgn * sk.hip[0], sk.hip[1], sk.hip[2]])
+        Rt = _limb_rot(v[IDX["leg_" + side]], sgn)
+        knee = float(v[IDX["knee_" + side]][0])
+        foot = float(v[IDX["foot_" + side]][0])
+        # Feet. The root's z = 0 is the figure's own floor. An ankle may be driven by a target (gaits pin the stance
+        # foot to the floor and arc the swing foot), and in any pose a sole that would go through the floor is held on
+        # it; in both cases the leg is solved by IK in its own bending plane, which is continuous with plain FK.
+        # A foot that is on - or just above - the floor lies flat (plus whatever pitch the pose asks for).
+        Rp = P[:3, :3]
+        Ft = tr((0, 0, -L_SHIN)) @ rx(foot)
+        up = min(max((Rp[2, 2] - 0.3) / 0.5, 0.0), 1.0)                  # 1 = torso upright, 0 = lying; blends smoothly
+        up = up * up * (3 - 2 * up)
+        if up > 0:
+            ank = P[:3, 3] + Rp @ (Hp + Rt @ np.array([0, 0, -L_THIGH]) + Rt @ _r3(rx(-knee)) @ np.array([0, 0, -L_SHIN]))
+            av = v[IDX["ankle_" + side]]
+            aw = min(max(float(av[3]), 0.0), 1.0)
+            moved = False
+            if aw > 1e-3:
+                tg = np.array(av[:3]) / max(float(av[3]), 1e-6)
+                want = np.array([sgn * (sk.hip[0] + tg[0]), sk.hip[1] + tg[1], sk.ankle_h + tg[2]])
+                ank = ank + (want - ank) * (aw * aw * (3 - 2 * aw))
+                moved = True
+            if ank[2] < sk.ankle_h:
+                ank[2] = sk.ankle_h
+                moved = True
+            Rt0, knee0 = Rt, knee
+            if moved:
+                Ri, ki = _ik(Hp, Rp.T @ (ank - P[:3, 3]), L_THIGH, L_SHIN, norm(Rt @ np.array([0.0, 1.0, 0.15])))
+                Rt = Ri @ _r3(rz(180.0))                                 # leg convention: the knee folds backwards
+                knee = min(ki, 150.0)
+                if up < 1:
+                    Rt, knee = _qlerp(Rt0, Rt, up), knee0 + (knee - knee0) * up
+            Rs = Rp @ Rt @ _r3(rx(-knee))
+            near = 1.0 - min(max((ank[2] - sk.ankle_h - 0.012) / 0.25, 0.0), 1.0)
+            near *= min(max((Rs[2, 2] - 0.45) / 0.3, 0.0), 1.0)          # only while the shin is roughly upright
+            yaw = math.degrees(math.atan2(-Rp[0, 1], Rp[1, 1])) + sgn * float(v[IDX["leg_" + side]][2])
+            flat = _r3(rz(yaw) @ rx(foot * aw))
+            if near > 0 and aw < 1:                                      # a foot only sweeping past the floor (a kick) is left alone
+                c = (np.trace((Rs @ _r3(rx(foot))).T @ flat) - 1) / 2
+                off = math.degrees(math.acos(max(-1.0, min(1.0, c))))
+                near *= 1.0 - min(max((off - 25.0) / 25.0, 0.0), 1.0)
+            lvl = max(near * near * (3 - 2 * near), aw) * up
+            if lvl > 0:
+                Ft[:3, :3] = _qlerp(_r3(rx(foot)), Rs.T @ flat, lvl)
+        Tm = tr(Hp)
+        Tm[:3, :3] = Rt
         M["thigh_" + side] = Tm
-        M["shin_" + side] = tr((0, 0, -L_THIGH)) @ rx(-float(v[IDX["knee_" + side]][0]))
-        M["foot_" + side] = tr((0, 0, -L_SHIN)) @ rx(float(v[IDX["foot_" + side]][0]))
+        M["shin_" + side] = tr((0, 0, -L_THIGH)) @ rx(-knee)
+        M["foot_" + side] = Ft
+    down = min((1.0 - min(max((P[2, 2] - 0.3) / 0.5, 0.0), 1.0)) / 0.3, 1.0)   # lying / tumbling: no limb goes through the floor
+    if down > 0:
+        R = to_root(M)
+        low = min(R[k][2, 3] for k in ("pelvis", "chest", "head", "farm_l", "farm_r", "hand_l", "hand_r", "shin_l", "shin_r", "foot_l", "foot_r"))
+        if low < 0.075:
+            P[2, 3] += (0.075 - low) * down * down * (3 - 2 * down)
     return M
 
 
@@ -491,18 +576,9 @@ def to_root(M):
     return out
 
 
-# ----------------------------------------------------------------------------- body meshes
-
-BUILDS = {
-    #          shoulders hips  waist depth  limb  head
-    "man":    (1.00, 1.00, 1.00, 1.00, 1.00, 1.00),
-    "woman":  (0.87, 1.04, 0.82, 0.92, 0.84, 0.97),
-    "slim":   (0.92, 0.92, 0.88, 0.9, 0.86, 0.98),
-    "heavy":  (1.1, 1.26, 1.4, 1.36, 1.2, 1.03),
-    "child":  (0.84, 0.90, 0.95, 0.95, 0.9, 1.24),
-    "robot":  (1.10, 0.95, 0.80, 1.00, 0.90, 1.00),
-}
-
+# ----------------------------------------------------------------------------- bodies, hair, hats, outfits
+# The body itself is a real skinned mesh (umbra/body.py). What is built here are the rigid add-ons, each authored in the
+# local space of the bone it rides on.
 
 def _ring(z, hw, hd, n=16, y=0.0, p=2.0, x=0.0):
     """Cross-section in the XY plane at height z. p > 2 squares it off (cloth), p = 2 is an ellipse."""
@@ -515,139 +591,57 @@ def _ring(z, hw, hd, n=16, y=0.0, p=2.0, x=0.0):
     return out
 
 
-def _limb(m, sections, k=1.0, seg=14, p=2.0, joint=True):
-    """Tapered limb hanging down -Z: sections = [(z, rx, ry[, y_offset]), ...] top to bottom."""
-    rings = []
-    for sec in sections:
-        z, rx_, ry_ = sec[0], sec[1] * k, sec[2] * k
-        rings.append(_ring(z, rx_, ry_, n=seg, y=sec[3] if len(sec) > 3 else 0.0, p=p))
-    m.loft(rings[::-1])
-    if joint:
-        z, rx_, ry_ = sections[0][0], sections[0][1] * k, sections[0][2] * k
-        m.sphere(1.0, at=(0, sections[0][3] if len(sections[0]) > 3 else 0.0, z), scale=(rx_, ry_, min(rx_, ry_)), seg=seg)
-        z, rx_, ry_ = sections[-1][0], sections[-1][1] * k, sections[-1][2] * k
-        m.sphere(1.0, at=(0, sections[-1][3] if len(sections[-1]) > 3 else 0.0, z), scale=(rx_, ry_, min(rx_, ry_)), seg=seg)
-    return m
-
-
-def part_meshes(build="man", hair="short", hat=None, outfit=None):
-    """-> {part: Mesh} in each part's local space (joint at origin).
-    The figure is drawn as a *dressed* silhouette: squared shoulders, tapered sleeves and trouser legs,
-    real hands and shoes. Everything is tuned to read as one clean shape when rendered flat."""
-    sh, hp, wa, dp, lb, hs = BUILDS.get(build, BUILDS["man"])
-    fem = build in ("woman",)
+def extras(sk, build="man", hair="short", hat=None, outfit=None):
+    """-> {bone: Mesh} of rigid add-ons in bone-local space."""
+    hs = 1.22 if build == "child" else 1.0
+    c = sk.head_c[2] * hs
     P = {}
-    # ---- pelvis (hip joint height at z = 0; crotch at -0.12)
-    m = Mesh()
-    m.loft([_ring(-0.118, 0.062 * hp, 0.066 * dp, p=2.3), _ring(-0.085, 0.128 * hp, 0.088 * dp, p=2.5, y=-0.004),
-            _ring(-0.03, 0.156 * hp, 0.097 * dp, p=2.6, y=-0.006), _ring(0.04, 0.15 * (hp + wa) / 2, 0.093 * dp, p=2.6),
-            _ring(0.14, 0.134 * wa, 0.086 * dp, p=2.6)])
-    P["pelvis"] = m
-    # ---- chest (waist joint at z = 0; shoulder line at 0.345; neck base at 0.415)
-    m = Mesh()
-    belly = 0.035 * (wa - 1.0) if wa > 1.1 else 0.0
-    bust = 0.014 if fem else 0.0
-    m.loft([_ring(-0.05, 0.132 * wa, 0.085 * dp, p=2.6, y=belly), _ring(0.04, 0.134 * wa, 0.088 * dp, p=2.6, y=belly * 1.6),
-            _ring(0.13, 0.148 * (sh + wa) / 2, 0.096 * dp, p=2.6, y=belly),
-            _ring(0.215, 0.168 * sh, 0.102 * dp, p=2.7, y=bust), _ring(0.285, 0.186 * sh, 0.1 * dp, p=2.8, y=bust * 0.6),
-            _ring(0.335, 0.204 * sh, 0.09 * dp, p=3.0), _ring(0.364, 0.198 * sh, 0.08 * dp, p=2.8),
-            _ring(0.388, 0.125 * sh, 0.07, p=2.3), _ring(0.405, 0.074, 0.06, p=2.0), _ring(0.43, 0.05, 0.052)])
-    if outfit is None and build != "child":                       # shirt / jacket: a hem at the hips and a collar
-        m.loft([_ring(-0.14, 0.166 * (hp + wa) / 2, 0.104 * dp, p=2.9), _ring(-0.04, 0.156 * wa, 0.098 * dp, p=2.8),
-                _ring(0.08, 0.146 * wa, 0.094 * dp, p=2.7)])
-        m.loft([_ring(0.392, 0.078, 0.07, n=12, y=-0.004), _ring(0.43, 0.062, 0.064, n=12, y=-0.006)])
-    P["chest"] = m
-    # ---- head (neck base at z = 0, skull centre at HEAD_C)
-    m = Mesh()
-    c = HEAD_C
-    m.loft([_ring(-0.035, 0.054, 0.055, n=12, y=-0.012), _ring(0.03, 0.05, 0.052, n=12, y=-0.006), _ring(0.1, 0.048, 0.052, n=12, y=0.0)])
-    m.sphere(0.1 * hs, at=(0, 0.0, c + 0.012), scale=(0.775, 0.97, 1.1), seg=22)                          # cranium
-    m.sphere(0.1 * hs, at=(0, 0.02 * hs, c - 0.035 * hs), scale=(0.66, 0.8, 0.86), seg=16)                # face
-    m.sphere(0.05 * hs, at=(0, 0.052 * hs, c - 0.082 * hs), scale=(0.84, 0.8, 0.72), seg=12)              # chin
-    m.sphere(0.02 * hs, at=(0, 0.098 * hs, c - 0.018 * hs), scale=(0.62, 1.0, 1.35), seg=8)               # nose
-    for sx in (-1, 1):
-        m.sphere(0.02 * hs, at=(sx * 0.077 * hs, -0.004, c - 0.012 * hs), scale=(0.4, 0.8, 1.35), seg=8)  # ears
-    _hair(m, hair, hs)
-    _hat(m, hat, hs)
-    P["head"] = m
-    for side, sgn in (("l", -1), ("r", 1)):
-        # ---- arm: sleeve tapering to the wrist
-        m = Mesh()
-        cap = 0.52 + 0.36 * sh
-        _limb(m, [(0.0, 0.05 * cap, 0.053 * cap), (-0.06, 0.049, 0.053), (-0.16, 0.043, 0.046), (-L_UARM, 0.036, 0.039)], k=lb)
-        P["uarm_" + side] = m
-        m = Mesh()
-        _limb(m, [(0.0, 0.036, 0.039), (-0.055, 0.038, 0.042), (-0.16, 0.031, 0.034), (-L_FARM + 0.035, 0.027, 0.031),
-                  (-L_FARM + 0.03, 0.031, 0.034), (-L_FARM, 0.031, 0.034)], k=lb)                          # cuff
-        P["farm_" + side] = m
-        # ---- hand: flat palm, tapering fingers with a slight curl, thumb
-        m = Mesh()
-        m.loft([_ring(-0.166, 0.007, 0.013, n=10, y=0.03, p=2.4), _ring(-0.15, 0.011, 0.026, n=10, y=0.024, p=2.6),
-                _ring(-0.115, 0.014, 0.036, n=10, y=0.014, p=2.8), _ring(-0.072, 0.017, 0.042, n=10, y=0.006, p=2.8),
-                _ring(-0.03, 0.019, 0.038, n=10, y=0.002, p=2.6), _ring(0.004, 0.021, 0.028, n=10, p=2.2)])
-        m.capsule(0.0125, 0.0085, 0.056, at=(sgn * -0.004, 0.036, -0.03), rot=(30, 0, 0), seg=8)
-        P["hand_" + side] = m
-        # ---- leg
-        m = Mesh()
-        wide = outfit in ("dress", "skirt", "gown", "robe")
-        hipk = 0.72 + 0.28 * hp
-        if wide:
-            ln = L_THIGH if outfit in ("dress", "gown", "robe") else L_THIGH * 0.72
-            hem = (0.2 if outfit != "skirt" else 0.165) * hp                  # A-line with a flat hem
-            m.loft([_ring(-ln + 0.04, hem, hem * 0.86, n=16), _ring(-ln * 0.5, 0.165 * hp, 0.14 * hp, n=16), _ring(0.03, 0.115 * hp, 0.1 * hp, n=16)])
-        _limb(m, [(0.0, 0.082 * hipk, 0.09 * hipk, -0.004), (-0.11, 0.079 * hipk, 0.087 * hipk, -0.002), (-0.27, 0.064, 0.069),
-                  (-L_THIGH, 0.05, 0.054)], k=lb)
-        if outfit in ("coat",):
-            m.loft([_ring(-L_THIGH * 0.8, 0.125 * hp, 0.112 * hp, n=14, p=2.6), _ring(0.02, 0.108 * hp, 0.098 * hp, n=14, p=2.6)])
-        P["thigh_" + side] = m
-        m = Mesh()
-        cuff = 0.04 if not fem else 0.031                                   # trouser leg vs bare ankle
-        _limb(m, [(0.0, 0.05, 0.054), (-0.1, 0.049, 0.057, -0.007), (-0.24, 0.04, 0.045, -0.004),
-                  (-L_SHIN + 0.035, cuff * 0.95, cuff, 0.0), (-L_SHIN + 0.005, cuff, cuff * 1.06, 0.002)], k=lb)
+    hm = Mesh()
+    _hair(hm, hair, hs, c)
+    _hat(hm, hat, hs, c)
+    if hm.v:
+        P["head"] = Mesh().add(hm, at=(0, sk.head_c[1] * hs, 0))
+    LT, LS, LU, LF = sk.L_THIGH, sk.L_SHIN, sk.L_UARM, sk.L_FARM
+    for side in "lr":
+        if outfit in ("dress", "skirt", "gown", "robe"):                 # A-line with a flat hem, one cone per thigh
+            ln = LT if outfit != "skirt" else LT * 0.72
+            hem = 0.2 if outfit != "skirt" else 0.165
+            P["thigh_" + side] = Mesh().loft([_ring(-ln + 0.04, hem, hem * 0.86), _ring(-ln * 0.5, 0.165, 0.14), _ring(0.03, 0.118, 0.104)])
+        if outfit == "coat":
+            P["thigh_" + side] = Mesh().loft([_ring(-LT * 0.8, 0.125, 0.112, n=14, p=2.6), _ring(0.02, 0.11, 0.1, n=14, p=2.6)])
+            P["uarm_" + side] = Mesh().loft([_ring(-LU, 0.05, 0.052, n=12), _ring(-LU * 0.5, 0.056, 0.058, n=12), _ring(0.0, 0.062, 0.064, n=12)])
+            P["farm_" + side] = Mesh().loft([_ring(-LF + 0.02, 0.043, 0.046, n=12), _ring(0.0, 0.05, 0.052, n=12)])
         if outfit in ("gown", "robe"):
-            m.capsule(0.19 * hp, 0.21 * hp, L_SHIN - 0.02, seg=14, sx=1.0, sy=0.9)
-        P["shin_" + side] = m
-        # ---- shoe: heel, instep, toe (sole at z = -0.06)
-        m = Mesh()
-
-        def sec(y, hw, top, zb=-0.06):
-            return [(-hw, y, zb), (hw, y, zb), (hw, y, top - 0.012), (hw * 0.55, y, top), (-hw * 0.55, y, top), (-hw, y, top - 0.012)]
-        m.loft([sec(-0.074, 0.024, -0.022), sec(-0.06, 0.036, 0.004), sec(-0.02, 0.041, 0.028), sec(0.03, 0.043, 0.022),
-                sec(0.085, 0.046, -0.006), sec(0.14, 0.045, -0.024), sec(0.18, 0.037, -0.036), sec(0.198, 0.02, -0.046)])
-        P["foot_" + side] = m
+            P["shin_" + side] = Mesh().capsule(0.19, 0.21, LS - 0.02, seg=14, sx=1.0, sy=0.9)
+        if outfit == "robe":
+            P["farm_" + side] = Mesh().capsule(0.055, 0.09, LF - 0.03, seg=12)
+            P["uarm_" + side] = Mesh().capsule(0.068, 0.062, LU, seg=12)
     if outfit == "coat":
-        P["pelvis"].loft([_ring(-0.21, 0.185 * hp, 0.118 * dp, p=2.8), _ring(0.0, 0.178 * hp, 0.114 * dp, p=2.8), _ring(0.15, 0.15 * wa, 0.1 * dp, p=2.6)])
-        P["chest"].loft([_ring(-0.05, 0.15 * wa, 0.1 * dp, p=2.7), _ring(0.2, 0.178 * sh, 0.112 * dp, p=2.8), _ring(0.335, 0.205 * sh, 0.098 * dp, p=3.0),
-                         _ring(0.37, 0.19 * sh, 0.085 * dp, p=2.8)])
-        for side in "lr":
-            _limb(P["uarm_" + side], [(0.0, 0.056, 0.059), (-0.16, 0.05, 0.053), (-L_UARM, 0.043, 0.046)], k=lb)
-            _limb(P["farm_" + side], [(0.0, 0.043, 0.046), (-0.16, 0.039, 0.042), (-L_FARM + 0.02, 0.036, 0.04)], k=lb)
+        P["pelvis"] = Mesh().loft([_ring(-0.2, 0.19, 0.125, p=2.8), _ring(0.0, 0.182, 0.12, p=2.8), _ring(0.16, 0.156, 0.108, p=2.6)])
+        z1 = sk.shoulder[2]
+        P["chest"] = Mesh().loft([_ring(-0.05, 0.156, 0.108, p=2.7, y=sk.shoulder[1] * 0.3), _ring(z1 * 0.6, 0.188, 0.124, p=2.8, y=sk.shoulder[1] * 0.6),
+                                  _ring(z1, 0.214, 0.108, p=3.0, y=sk.shoulder[1]), _ring(z1 + 0.04, 0.2, 0.092, p=2.8, y=sk.shoulder[1])])
     if outfit in ("dress", "gown", "robe", "skirt"):
-        P["pelvis"].loft([_ring(-0.16, 0.2 * hp, 0.14 * dp), _ring(-0.04, 0.176 * hp, 0.114 * dp), _ring(0.1, 0.142 * wa, 0.092 * dp)])
-    if outfit == "robe":
-        for side in "lr":
-            P["farm_" + side].capsule(0.05, 0.085, L_FARM - 0.03, seg=12)
-            P["uarm_" + side].capsule(0.062, 0.058, L_UARM, seg=12)
+        P["pelvis"] = Mesh().loft([_ring(-0.16, 0.2, 0.14), _ring(-0.04, 0.18, 0.12), _ring(0.1, 0.15, 0.1)])
     if outfit == "backpack":
-        P["chest"].box((0.3, 0.15, 0.4), at=(0, -0.16, 0.16))
+        P["chest"] = Mesh().box((0.3, 0.15, 0.4), at=(0, -0.2, 0.2), bevel=0.03)
     return P
 
 
-def _hair(m, hair, hs):
-    c = HEAD_C
+def _hair(m, hair, hs, c):
     if hair in (None, "bald", "none"):
         return
     if hair in ("short", "long", "bob", "bun", "pony"):
-        m.sphere(0.104 * hs, at=(0, -0.01, c + 0.026), scale=(0.8, 1.0, 1.07), seg=20)                     # cap following the skull
+        m.sphere(0.105 * hs, at=(0, -0.008, c + 0.024), scale=(0.8, 1.0, 1.06), seg=20)                    # cap following the skull
     if hair == "short":
-        m.sphere(0.06 * hs, at=(0, 0.045 * hs, c + 0.098 * hs), scale=(1.05, 1.0, 0.5), seg=12)            # a little lift at the front
-        m.sphere(0.07 * hs, at=(0, -0.062 * hs, c - 0.03 * hs), scale=(0.9, 0.6, 0.9), seg=12)             # nape
+        m.sphere(0.05 * hs, at=(0, 0.03 * hs, c + 0.1 * hs), scale=(1.1, 1.0, 0.45), seg=12)               # a little lift at the front
+        m.sphere(0.07 * hs, at=(0, -0.06 * hs, c - 0.03 * hs), scale=(0.9, 0.6, 0.9), seg=12)              # nape
     elif hair == "long":
-        m.loft([_ring(c - 0.27, 0.07 * hs, 0.022, n=14, y=-0.082), _ring(c - 0.17, 0.086 * hs, 0.036, n=14, y=-0.072),
-                _ring(c - 0.06, 0.092 * hs, 0.05, n=14, y=-0.05), _ring(c + 0.03, 0.086 * hs, 0.07, n=14, y=-0.03)])
+        m.loft([_ring(c - 0.27, 0.07 * hs, 0.022, n=14, y=-0.082), _ring(c - 0.17, 0.088 * hs, 0.036, n=14, y=-0.072),
+                _ring(c - 0.06, 0.094 * hs, 0.05, n=14, y=-0.05), _ring(c + 0.03, 0.088 * hs, 0.07, n=14, y=-0.03)])
     elif hair == "bob":
-        m.loft([_ring(c - 0.115, 0.098 * hs, 0.072, n=14, y=-0.03, p=2.4), _ring(c - 0.05, 0.094 * hs, 0.085, n=14, y=-0.024),
-                _ring(c + 0.03, 0.086 * hs, 0.09, n=14, y=-0.018)])
+        m.loft([_ring(c - 0.115, 0.1 * hs, 0.072, n=14, y=-0.03, p=2.4), _ring(c - 0.05, 0.096 * hs, 0.085, n=14, y=-0.024),
+                _ring(c + 0.03, 0.088 * hs, 0.09, n=14, y=-0.018)])
     elif hair == "bun":
         m.sphere(0.05 * hs, at=(0, -0.082, c + 0.112), seg=12)
     elif hair == "pony":
@@ -657,7 +651,7 @@ def _hair(m, hair, hs):
         for i in range(22):
             a = rng.uniform(0, 2 * math.pi)
             e = rng.uniform(-0.3, 1.0)
-            r = 0.088 * hs
+            r = 0.09 * hs
             q = (r * math.cos(a) * math.cos(e) * 0.86, -0.014 + r * math.sin(a) * math.cos(e) * 1.02, c + 0.035 + r * math.sin(e) * 1.08)
             if q[1] > 0.05 and q[2] < c + 0.06:
                 continue
@@ -665,7 +659,7 @@ def _hair(m, hair, hs):
     elif hair == "afro":
         m.sphere(0.15 * hs, at=(0, -0.02, c + 0.055), scale=(0.94, 0.96, 0.95), seg=20)
     elif hair == "spiky":
-        m.sphere(0.103 * hs, at=(0, -0.01, c + 0.024), scale=(0.8, 1.0, 1.06), seg=18)
+        m.sphere(0.104 * hs, at=(0, -0.01, c + 0.024), scale=(0.8, 1.0, 1.06), seg=18)
         for i in range(7):
             a = -60 + i * 20
             m.cone(0.03, 0.085, at=(0, -0.01 + 0.085 * math.sin(math.radians(a)), c + 0.1 * math.cos(math.radians(a)) + 0.02),
@@ -674,9 +668,8 @@ def _hair(m, hair, hs):
         m.extrude([(-0.11, 0), (-0.09, 0.07), (0.0, 0.1), (0.09, 0.075), (0.11, 0.0)], 0.026, at=(-0.013, 0, c + 0.085), rot=(90, 0, 90))
 
 
-def _hat(m, hat, hs):
-    c = HEAD_C
-    top = c + 0.098 * hs
+def _hat(m, hat, hs, c):
+    top = c + 0.1 * hs
     if not hat:
         return
     if hat == "tophat":
@@ -711,23 +704,95 @@ def _hat(m, hat, hs):
         raise ValueError(f"unknown hat {hat!r}: tophat fedora cap helmet bobby beanie hood crown chef")
 
 
+_ASM = {}
+
+
+def rest_mats(sk):
+    """Bone frames (root space) of the body's own rest stance."""
+    v = np.zeros(NPOSE)
+    _apply(v, sk.rest)
+    return to_root(solve_pose(v, sk))
+
+
+def assemble(build="man", hair="short", hat=None, outfit=None):
+    """-> (verts, faces, W, bones, sk, rest): a dressed body with its add-ons, in the rest stance, plus skin weights."""
+    from . import body
+    key = (build, hair, hat, outfit)
+    if key not in _ASM:
+        b = body.load(body.BUILD_BODY.get(build, "male"))
+        sk, bones = b["sk"], b["bones"]
+        v, faces, W = body.dressed(b, body.shaped(b, build))
+        rest = rest_mats(sk)
+        vs, ws, base = [v], [W], len(v)
+        for part, m in extras(sk, build, hair, hat, outfit).items():
+            if not m.v:
+                continue
+            pv = np.concatenate(m.v) @ rest[part][:3, :3].T + rest[part][:3, 3]
+            one = np.zeros((len(pv), len(bones)))
+            one[:, bones.index(part)] = 1.0
+            vs.append(pv)
+            ws.append(one)
+            faces = faces + [tuple(base + i for i in f) for f in m.f]
+            base += len(pv)
+        _ASM[key] = (np.concatenate(vs), faces, np.concatenate(ws), bones, sk, rest)
+    return _ASM[key]
+
+
 def figure_mesh(pose="stand", build="man", hair="short", hat=None, outfit=None, **over):
     """A whole figure frozen in a pose as ONE Mesh (statues, crowds, background extras)."""
-    parts = part_meshes(build, hair, hat, outfit)
-    R = to_root(solve_pose(pose_vec(pose, **over)))
+    from . import body
+    v, faces, W, bones, sk, rest = assemble(build, hair, hat, outfit)
+    R = to_root(solve_pose(pose_vec(pose, **over), sk))
+    T = {b: R[b] @ np.linalg.inv(rest[b]) for b in bones}
     out = Mesh()
-    for k, m in parts.items():
-        if not m.v:
-            continue
-        verts = np.concatenate(m.v)
-        w = verts @ R[k][:3, :3].T + R[k][:3, 3]
-        base = out.nv
-        out.v.append(w)
-        out.nv += len(w)
-        for f, p, e, s in zip(m.f, m.fpaint, m.femit, m.fsmooth):
-            out.f.append(tuple(base + i for i in f))
-            out.fpaint.append(p); out.femit.append(e); out.fsmooth.append(s)
+    out._add(body.skin(v, W, bones, T), faces, smooth=True)
     return out
+
+
+def _bpy_body(scene, key):
+    """Blender mesh (with deform weights) for a body style; shared by every person of that style."""
+    cache = scene.__dict__.setdefault("_bodies", {})
+    if key not in cache:
+        import bmesh
+        v, faces, W, bones, sk, rest = assemble(*key[:4])
+        m = Mesh()
+        m._add(v, faces, smooth=True)
+        me = m.build("body_" + "_".join(str(k) for k in key if k))
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        dl = bm.verts.layers.deform.verify()
+        bm.verts.ensure_lookup_table()
+        rows, cols = np.nonzero(W > 1e-4)
+        for i, j in zip(rows.tolist(), cols.tolist()):
+            bm.verts[i][dl][j] = float(W[i, j])
+        bm.to_mesh(me)
+        bm.free()
+        cache[key] = (me, bones, sk, rest)
+    return cache[key]
+
+
+def _bpy_rig(scene, name, rest):
+    """Armature datablock whose bones rest exactly on umbra's part frames (shared by every person with that body)."""
+    cache = scene.__dict__.setdefault("_rigs", {})
+    if name not in cache:
+        import bpy
+        from mathutils import Matrix
+        arm = bpy.data.armatures.new("rig_" + name)
+        tmp = bpy.data.objects.new("rig_tmp", arm)
+        scene.bscene.collection.objects.link(tmp)
+        bpy.context.view_layer.objects.active = tmp
+        bpy.ops.object.mode_set(mode="EDIT")
+        for k in ORDER:
+            eb = arm.edit_bones.new(k)
+            eb.head, eb.tail = (0, 0, 0), (0, 0.08, 0)
+            eb.matrix = Matrix(rest[k].tolist())
+        for k in ORDER:
+            if PARENT[k]:
+                arm.edit_bones[k].parent = arm.edit_bones[PARENT[k]]
+        bpy.ops.object.mode_set(mode="OBJECT")
+        bpy.data.objects.remove(tmp)
+        cache[name] = arm
+    return cache[name]
 
 
 # ----------------------------------------------------------------------------- nodes
@@ -784,6 +849,8 @@ class _Static:
 class Person(Node):
     def __init__(self, scene, obj, height=1.75, build="man", hair="short", hat=None, outfit=None, mat="flat",
                  pose="stand", idle=1.0, name="person"):
+        import bpy
+        from . import body as _body
         super().__init__(scene, obj, name)
         self.height = height
         k = height / 1.75
@@ -795,23 +862,62 @@ class Person(Node):
         self._cache = {}
         self.idle = idle
         self._seed = (len(scene._nodes) * 1.37) % 17
+        me, bones, self.sk, self._rest = _bpy_body(scene, (build, hair, hat, outfit, mat))
+        self._arel = {b: np.linalg.inv(self._rest[b] if PARENT[b] is None else np.linalg.inv(self._rest[PARENT[b]]) @ self._rest[b])
+                      for b in ORDER}
         self.part = {}
-        meshes = part_meshes(build, hair, hat, outfit)
-        for key in ORDER:
-            me = meshes[key].build(name + "_" + key)
-            n = scene.add(me, mat=mat, name=name + "_" + key, color="white")
-            n.__class__ = PartNode
-            n.person, n.key = self, key
+        for key in ORDER:                             # one empty per bone: anchors, held props and checks hang off these
+            e = bpy.data.objects.new(name + "_" + key, None)
+            scene.bscene.collection.objects.link(e)
+            n = PartNode(scene, e, self, key)
             n.parent_to(self if PARENT[key] is None else self.part[PARENT[key]])
             self.part[key] = n
+        self.body = scene.add(me, mat=mat, name=name + "_body", color="white", ink=False, solid=False)
+        self.body.inherit_color, self.body.auto_blend = True, False
+        self.body.parent_to(self)
+        for b in bones:
+            self.body.obj.vertex_groups.new(name=b)
+        rig = bpy.data.objects.new(name + "_rig", _bpy_rig(scene, _body.BUILD_BODY.get(build, "male"), self._rest))
+        scene.bscene.collection.objects.link(rig)
+        self.body.obj.modifiers.new("rig", "ARMATURE").object = rig
+        self.rig = Node(scene, rig, name + "_rig")
+        self.rig.parent_to(self)
         self.parts = self.part
         self.head, self.chest, self.pelvis = self.part["head"], self.part["chest"], self.part["pelvis"]
         self.hand_l, self.hand_r = self.part["hand_l"], self.part["hand_r"]
         self.foot_l, self.foot_r = self.part["foot_l"], self.part["foot_r"]
         self.lamp = None
-        self._anch = {"head": ("head", (0, 0, HEAD_C)), "above": ("head", (0, 0, HEAD_C + 0.3)), "face": ("head", (0, 0.1, HEAD_C)),
-                      "chest": ("chest", (0, 0, 0.22)), "hips": ("pelvis", (0, 0, 0)), "hand_l": ("hand_l", (0, 0, -0.09)),
-                      "hand_r": ("hand_r", (0, 0, -0.09)), "foot_l": ("foot_l", (0, 0.05, -0.05)), "foot_r": ("foot_r", (0, 0.05, -0.05))}
+        hc, palm = self.sk.head_c, (0, 0, -self.sk.L_HAND * 0.5)
+        self._anch = {"head": ("head", tuple(hc)), "above": ("head", (hc[0], hc[1], hc[2] + 0.3)), "face": ("head", (hc[0], hc[1] + 0.1, hc[2])),
+                      "chest": ("chest", (0, 0, 0.25)), "hips": ("pelvis", (0, 0, 0)), "hand_l": ("hand_l", palm), "hand_r": ("hand_r", palm),
+                      "foot_l": ("foot_l", (0, 0.06, -self.sk.ankle_h)), "foot_r": ("foot_r", (0, 0.06, -self.sk.ankle_h))}
+
+    def bake(self, B):
+        """Root transform, then the armature: each bone's pose is umbra's own part frame expressed in bone space."""
+        super().bake(B)
+        arm = self.rig.obj
+        if arm.pose is None or len(arm.pose.bones) == 0:        # pose channels appear on the first dependency-graph update
+            self.scene.bscene.view_layers[0].update()
+        locs, quats, prev = [], {k: [] for k in ORDER}, {}
+        for t in B.times:
+            R = to_root(self.solve(t))
+            for k in ORDER:
+                p = PARENT[k]
+                basis = self._arel[k] @ (R[k] if p is None else np.linalg.inv(R[p]) @ R[k])
+                q = mat_to_quat(basis)
+                if k in prev and float(np.dot(q, prev[k])) < 0:
+                    q = -q
+                prev[k] = q
+                quats[k].append(q)
+                if p is None:
+                    locs.append(basis[:3, 3].copy())
+        for k in ORDER:
+            pb = arm.pose.bones[k]
+            pb.rotation_mode = "QUATERNION"
+            pb.rotation_quaternion = quats[k][0]
+            B.vec(arm, 'pose.bones["%s"].rotation_quaternion' % k, quats[k])
+        arm.pose.bones["pelvis"].location = locs[0]
+        B.vec(arm, 'pose.bones["pelvis"].location', locs)
 
     # ------------------------------------------------------------------ posing
     def pose(self, spec=None, t=0.0, dur=0.5, ease="inout", mirror=False, **over):
@@ -841,7 +947,7 @@ class Person(Node):
         """Sit on something whose top is `seat` metres high. Already seated at the start: put the figure AT the seat
         (same heading as the chair). Sitting down on camera: stand the figure ~0.35 m in front of the seat and pass
         step=0.35 - it hinges forward, backs onto the seat and settles (standing inside a chair first would clip)."""
-        lift = (seat + 0.085) / (self.height / 1.75) - HIP_H
+        lift = (seat + 0.085) / (self.height / 1.75) - self.sk.HIP_H
         if table is not None:                        # hands rest flat on a top `table` metres above the floor
             k = self.height / 1.75
             over.setdefault("hand_l", (-0.16, 0.36, 0.2, table / k))
@@ -924,6 +1030,7 @@ class Person(Node):
                 return np.array([s0[0], s0[1], s0[2] + dy * kk * kk * (3 - 2 * kk)])
             self.rot.fn(yawf, t, dur, "linear")
         cycles = max(round(path.length / stride * 2) / 2, 0.5)       # whole steps, so both feet end planted
+        amp = path.length / cycles / (G["stride"] * k)               # the stride actually used: planted feet must not slide
         seed = self._seed
         if G.get("weave"):                                           # drunk: drift off the line and back
             side_amp = G["weave"]
@@ -938,7 +1045,7 @@ class Person(Node):
             env = env * env * (3 - 2 * env)
             if env <= 0:
                 return
-            _gait_pose(G, uu * cycles, env, amp, add, tt, seed)
+            _gait_pose(G, uu * cycles, env, amp, add, tt, seed, self.sk)
         self.layers.append((t, t + dur, gait))
         self._cache.clear()
         self.t_end = t + dur
@@ -959,7 +1066,7 @@ class Person(Node):
             u = (tt - t) / dur
             env = min(1.0, u / 0.12, (1 - u) / 0.12)
             if env > 0:
-                _gait_pose(G, (tt - t) * rate, env * env * (3 - 2 * env), 1.0, add, tt, seed)
+                _gait_pose(G, (tt - t) * rate, env * env * (3 - 2 * env), 1.0, add, tt, seed, self.sk)
         self.layers.append((t, t + dur, gait))
         self._cache.clear()
         return self
@@ -980,19 +1087,38 @@ class Person(Node):
         return self
 
     def _seq(self, t, steps, back=0.35, restore=True):
-        """steps = [(dt, pose_name_or_None, joint_overrides, ease)] played one after another; returns end time."""
+        """steps = [(dt, pose_name_or_None, joint_overrides, _)] -> one C1 curve through those key poses.
+        It leaves the starting pose and arrives at the final one with zero velocity (ease-in / ease-out), flows
+        through the keys in between without stopping, and rests on holds. Returns the end time."""
         prev = np.array(self.posetrack.at(t), dtype=float)
-        cur = t
-        for dt, name, over, ez in steps:
-            if name is None and not over:
-                cur += dt                                            # hold
-                continue
-            v = pose_vec(name, **over) if name is not None else pose_vec(None, base=self.posetrack.at(cur), **over)
-            self.posetrack.to(v, cur, dt, ez or "inout")
+        keys, cur = [(t, prev)], t
+        for dt, name, over, _ in steps:
             cur += dt
+            if name is None and not over:
+                keys.append((cur, keys[-1][1]))                          # hold
+            else:
+                keys.append((cur, pose_vec(name, **over) if name is not None else pose_vec(None, base=keys[-1][1], **over)))
         if restore:
-            self.posetrack.to(prev, cur, back, "inout")
             cur += back
+            keys.append((cur, prev))
+        T = np.array([k[0] for k in keys])
+        V = np.array([k[1] for k in keys])
+        n = len(keys)
+        tan = np.zeros_like(V)
+        for i in range(1, n - 1):
+            if np.allclose(V[i], V[i - 1]) or np.allclose(V[i], V[i + 1]):
+                continue                                                 # come to rest at a hold
+            tan[i] = (V[i + 1] - V[i - 1]) / (T[i + 1] - T[i - 1]) * 0.6
+
+        def f(u, start):
+            tt = t + u * (cur - t)
+            i = min(max(int(np.searchsorted(T, tt, side="right")) - 1, 0), n - 2)
+            h = T[i + 1] - T[i]
+            x = min(max((tt - T[i]) / h, 0.0), 1.0) if h > 1e-9 else 1.0
+            x2, x3 = x * x, x * x * x
+            return ((2 * x3 - 3 * x2 + 1) * V[i] + (x3 - 2 * x2 + x) * h * tan[i]
+                    + (-2 * x3 + 3 * x2) * V[i + 1] + (x3 - x2) * h * tan[i + 1])
+        self.posetrack.fn(f, t, cur - t, "linear")
         self.t_end = cur
         return cur
 
@@ -1001,22 +1127,22 @@ class Person(Node):
         yaw = math.radians(float(self.rot.at(t)[2]))
         fwd = np.array([-math.sin(yaw), math.cos(yaw), 0.0])
 
-        def f(tt):
+        def f(tt):                                                       # leaves and meets the floor with zero speed
             u = min(max((tt - t) / up, 0.0), 1.0)
-            return np.array([0, 0, 4 * height * u * (1 - u)]) + fwd * dist * u
+            return np.array([0, 0, height * math.sin(math.pi * u) ** 1.6]) + fwd * dist * (u * u * (3 - 2 * u))
         self.pos.add(f, t, t + up)
         if dist:
             self.pos.add(lambda tt: fwd * dist, t + up, 1e9)
 
     def _act_jump(self, t, dur, height=0.45, dist=0.0):
         d = (dur or 1.25)
-        up = max(0.35, 2 * math.sqrt(2 * height / 9.8)) * d / 1.25
+        up = max(0.3, 2.3 * math.sqrt(2 * height / 9.8))                 # flight time comes from the height, not from dur
         self._seq(t, [(0.26 * d, "crouch", dict(lift=-0.26, arm_l=(-40, 12), arm_r=(-40, 12), elbow_l=20, elbow_r=20, head=(-6, 0, 0)), "out2"),
-                      (0.1 * d, "stand", dict(arm_l=(150, 14), arm_r=(150, 14), foot_l=-35, foot_r=-35, spine=(-6, 0, 0)), "in"),
+                      (max(0.1 * d, 0.17), "stand", dict(arm_l=(150, 14), arm_r=(150, 14), foot_l=-20, foot_r=-20, spine=(-6, 0, 0)), "in"),
                       (up * 0.5, None, dict(leg_l=(34, 6), leg_r=(34, 6), knee_l=64, knee_r=64, arm_l=(120, 26), arm_r=(120, 26)), "out2"),
                       (up * 0.5, "stand", dict(knee_l=12, knee_r=12, arm_l=(40, 24), arm_r=(40, 24), foot_l=-20, foot_r=-20), "in2"),
                       (0.14 * d, "crouch", dict(lift=-0.2, arm_l=(30, 30), arm_r=(30, 30), head=(-4, 0, 0)), "out")], back=0.32 * d)
-        self._hop(t + 0.36 * d, up, height, dist)
+        self._hop(t + 0.26 * d + max(0.1 * d, 0.17), up, height, dist)
 
     def _act_hop(self, t, dur, height=0.16, dist=0.0):
         self._act_jump(t, dur or 0.8, height, dist)
@@ -1046,8 +1172,10 @@ class Person(Node):
                       (0.14 * d, None, {}, None), (0.24 * d, "guard", {}, "inout")], back=0.28 * d)
 
     def _act_kick(self, t, dur):
-        d = dur or 1.0
-        self._seq(t, [(0.28 * d, "windup", {}, "out2"), (0.13 * d, "strike", {}, "in"), (0.14 * d, None, {}, None)], back=0.45 * d)
+        d = dur or 1.1
+        self._seq(t, [(0.28 * d, "windup", {}, None),
+                      (0.1 * d, None, dict(leg_r=(16, 6), knee_r=66, foot_r=-8, hips=(0, 0, 4), spine=(6, 4, -10)), None),   # knee leads, foot clears the floor
+                      (0.1 * d, "strike", {}, None), (0.1 * d, None, {}, None)], back=0.42 * d)
 
     def _act_wave(self, t, dur):
         d = dur or 2.2
@@ -1068,7 +1196,7 @@ class Person(Node):
         d = dur or 2.4
         self._seq(t, [(0.16 * d, "cheer", {}, "back"), (0.68 * d, None, {}, None)], back=0.16 * d)
         t0 = t + 0.12 * d
-        self.pos.add(lambda tt: np.array([0, 0, 0.11 * abs(math.sin((tt - t0) * math.pi * 2.6))]) * min(1.0, (t + 0.84 * d - tt) / 0.2), t0, t + 0.84 * d)
+        self.pos.add(lambda tt: np.array([0, 0, 0.1 * math.sin((tt - t0) * math.pi * 2.2) ** 2]) * _sm((t + 0.84 * d - tt) / 0.3), t0, t + 0.84 * d)
         self.layers.append((t0, t + 0.84 * d, lambda tt, add: (add("arm_l", (8 * math.sin(tt * 9), 6 * math.sin(tt * 7), 0)),
                                                               add("arm_r", (8 * math.sin(tt * 9 + 1), 6 * math.sin(tt * 7 + 2), 0)))))
 
@@ -1097,7 +1225,7 @@ class Person(Node):
 
     def _act_facepalm(self, t, dur):
         d = dur or 2.0
-        self._seq(t, [(0.26 * d, None, dict(hand_r=(0.02, 0.13, 0.57), head=(20, 0, 0), spine=(8, 0, 0)), "out2"), (0.46 * d, None, {}, None)], back=0.28 * d)
+        self._seq(t, [(0.36 * d, None, dict(hand_r=(0.03, 0.15, 0.52), head=(20, 0, 0), spine=(8, 0, 0)), "out2"), (0.34 * d, None, {}, None)], back=0.3 * d)
         self.gesture("shake", t + 0.3 * d, 0.36 * d, amount=0.4)
 
     def _act_point(self, t, dur, target=None):
@@ -1115,39 +1243,45 @@ class Person(Node):
                   back=0.54 * d)
 
     def _act_flinch(self, t, dur):
-        d = dur or 0.9
-        self._seq(t, [(0.16 * d, "recoil", dict(arm_l=(60, 30), arm_r=(70, 24), elbow_l=110, elbow_r=110, lift=-0.06), "out"),
-                      (0.3 * d, None, {}, None)], back=0.54 * d)
+        d = dur or 1.1
+        self._seq(t, [(0.26 * d, "recoil", dict(arm_l=(60, 30), arm_r=(70, 24), elbow_l=110, elbow_r=110, lift=-0.06), "out"),
+                      (0.24 * d, None, {}, None)], back=0.5 * d)
 
     def _act_dance(self, t, dur):
         d = dur or 4.0
         self._seq(t, [(0.3, "dance", {}, "out2"), (d - 0.7, None, {}, None)], back=0.4)
-        t0, t1, bpm = t + 0.2, t + d - 0.3, 2.0
+        t0, t1, bpm = t + 0.2, t + d - 0.3, 1.6
 
         def f(tt, add):
+            e_ = _sm((tt - t0) / 0.5) * _sm((t1 - tt) / 0.5)
             w = (tt - t0) * 2 * math.pi * bpm
+            _add = add
+
+            def add(j, vals):                                            # the groove fades in and out
+                _add(j, vals * e_ if isinstance(vals, (int, float)) else tuple(x * e_ for x in vals))
             add("hips", (0, 9 * math.sin(w), 8 * math.sin(w * 0.5)))
             add("spine", (0, -8 * math.sin(w), -10 * math.sin(w * 0.5)))
             add("lift", -0.03 * (0.5 + 0.5 * math.cos(2 * w)))
             add("arm_l", (18 * math.sin(w * 0.5), 14 * math.cos(w), 0)); add("arm_r", (18 * math.cos(w * 0.5), 14 * math.sin(w), 0))
             add("elbow_l", 20 * math.sin(w)); add("elbow_r", 20 * math.cos(w))
-            add("knee_l", 14 * max(0.0, math.sin(w))); add("knee_r", 14 * max(0.0, -math.sin(w)))
+            add("knee_l", 7 * (1 + math.sin(w))); add("knee_r", 7 * (1 - math.sin(w)))
             add("head", (4 * math.sin(2 * w), 0, 6 * math.sin(w * 0.5)))
         self.layers.append((t0, t1, f))
 
     def _act_climb(self, t, dur, height=2.5):
         d = dur or max(2.0, height * 1.3)
         self._seq(t, [(0.3, "reach_up", dict(spine=(6, 0, 0), head=(-24, 0, 0), lift=0.0), "inout"), (d - 0.6, None, {}, None)], back=0.3)
-        self.pos.add(lambda tt: np.array([0, 0, height * min(max((tt - t - 0.25) / (d - 0.5), 0.0), 1.0)]), t, 1e9)
+        self.pos.add(lambda tt: np.array([0, 0, height * _sm(min(max((tt - t - 0.25) / (d - 0.5), 0.0), 1.0))]), t, 1e9)
         n = max(int(height / 0.3), 2)
 
         def f(tt, add):
-            w = min(max((tt - t - 0.25) / (d - 0.5), 0.0), 1.0) * n * math.pi
-            s_ = math.sin(w)
-            add("arm_l", (-34 * max(0.0, s_), 0, 0)); add("arm_r", (-34 * max(0.0, -s_), 0, 0))
-            add("elbow_l", 60 * max(0.0, s_)); add("elbow_r", 60 * max(0.0, -s_))
-            add("leg_l", (62 * max(0.0, -s_), 4, 0)); add("knee_l", 84 * max(0.0, -s_))
-            add("leg_r", (62 * max(0.0, s_), 4, 0)); add("knee_r", 84 * max(0.0, s_))
+            uu = _sm(min(max((tt - t - 0.25) / (d - 0.5), 0.0), 1.0))
+            e_ = _sm((tt - t - 0.25) / 0.3) * _sm((t + d - 0.25 - tt) / 0.3)
+            a, b = (0.5 + 0.5 * math.sin(uu * n * math.pi)) * e_, (0.5 - 0.5 * math.sin(uu * n * math.pi)) * e_
+            add("arm_l", (-34 * a, 0, 0)); add("arm_r", (-34 * b, 0, 0))
+            add("elbow_l", 60 * a); add("elbow_r", 60 * b)
+            add("leg_l", (62 * b, 4, 0)); add("knee_l", 84 * b)
+            add("leg_r", (62 * a, 4, 0)); add("knee_r", 84 * a)
         self.layers.append((t + 0.25, t + d - 0.25, f))
 
     def _act_sit_down(self, t, dur, seat=0.46, pose="sit"):
@@ -1160,7 +1294,8 @@ class Person(Node):
         d = dur or 1.5
         self._seq(t, [(0.25 * d, None, dict(arm_r=(74, 6), elbow_r=96), "out2"), (0.5 * d, None, {}, None)], back=0.25 * d)
         t0 = t + 0.25 * d
-        self.layers.append((t0, t + 0.75 * d, lambda tt, add: add("elbow_r", -26 * max(0.0, math.sin((tt - t0) * 2 * math.pi * 3.0)))))
+        self.layers.append((t0, t + 0.75 * d, lambda tt, add: add("elbow_r", -24 * math.sin((tt - t0) * math.pi * 2.6) ** 2
+                                                                   * _sm((tt - t0) / 0.15) * _sm((t + 0.75 * d - tt) / 0.15))))
 
     def _act_drink(self, t, dur):
         d = dur or 2.2
@@ -1238,10 +1373,10 @@ class Person(Node):
         s = self._seed
         a = amount
 
-        def env(tt):
+        def env(tt):                                                     # eases in and out
             u = (tt - t) / max(dur, 1e-6)
-            e = min(1.0, u / 0.15, (1 - u) / 0.15)
-            return max(0.0, e) ** 1 * a
+            e = max(0.0, min(1.0, u / 0.2, (1 - u) / 0.2))
+            return e * e * (3 - 2 * e) * a
         if kind == "talk":
             def f(tt, add):
                 e = env(tt)
@@ -1317,7 +1452,7 @@ class Person(Node):
         """Recoil from a blow: head/torso snap back and recover. direction +1 = hit from the front."""
         def f(tt, add):
             u = (tt - t) / dur
-            k = math.sin(min(u * 3.2, 1.0) * math.pi / 2) * (1 - u) ** 1.2 * strength * direction
+            k = _bump(u, 0.0, 0.2, 1.0) * strength * direction
             add("spine", (-26 * k, 0, 10 * k))
             add("head", (-30 * k, 0, 14 * k))
             add("hips", (-8 * k, 0, 0))
@@ -1328,9 +1463,12 @@ class Person(Node):
 
     def collapse(self, t=0.0, dur=1.1, pose="sprawl", mirror=False):
         """Knees give way, then the body drops to the floor."""
-        self.pose("cower", t, dur * 0.42, ease="in2", head=(-10, 0, 0), hand_l=None, hand_r=None,
-                  arm_l=(30, 14), arm_r=(20, 16), elbow_l=40, elbow_r=30)
-        self.pose(pose, t + dur * 0.42, dur * 0.58, ease="out2", mirror=mirror)
+        end = pose_vec(pose, mirror=mirror)
+        self._seq(t, [(dur * 0.42, "cower", dict(head=(-10, 0, 0), hand_l=None, hand_r=None, arm_l=(30, 14), arm_r=(20, 16),
+                                               elbow_l=40, elbow_r=30), None)], restore=False)
+        self.posetrack.to(end, t + dur * 0.42, dur * 0.58, "inout")
+        self.t_end = t + dur
+        self._cache.clear()
         return self
 
     def hold(self, node, side="r", at=(0, 0.03, -0.09), rot=(0, 0, 0), upright=False, drop=0.0):
@@ -1402,7 +1540,7 @@ class Person(Node):
             p = p.parent
         busy = self.__dict__.setdefault("_busy", set())
         if key in busy:                    # two people looking at / reaching for each other: break the cycle
-            return solve_pose(v, world)
+            return solve_pose(v, self.sk, world)
         busy.add(key)
         try:
             reach = {}
@@ -1414,7 +1552,7 @@ class Person(Node):
             look = (v3(f(t)), w) if f is not None and w > 0 else None
         finally:
             busy.discard(key)
-        M = solve_pose(v, world, reach, look)
+        M = solve_pose(v, self.sk, world, reach, look)
         if len(self._cache) > 4000:
             self._cache.clear()
         self._cache[key] = M

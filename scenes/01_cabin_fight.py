@@ -29,10 +29,10 @@ class CabinFight(Scene):
 
         # rise into the leg-room in front of the seat, side-step to the aisle, then go forward (no walking through seats)
         tucked = dict(arm_l=(0, 3), arm_r=(0, 3), elbow_l=4, elbow_r=4)            # arms straight down: the rows are tight
-        red.pose("stand", t=1.2, dur=0.7, **tucked).move_by((0, 0.3, 0), t=1.25, dur=0.6)
+        red.pose("stand", t=1.2, dur=0.7, **tucked).move_by((0, 0.24, 0), t=1.25, dur=0.6)
         red.move((ax, y2 + 0.4, 0), t=1.9, dur=0.8)                          # side-steps out, still facing forward
         red.walk((ax, 0.55), t=2.8, dur=1.7, avoid=False)
-        blue.pose("stand", t=3.2, dur=0.7, **tucked).move_by((0, 0.3, 0), t=3.25, dur=0.5)
+        blue.pose("stand", t=3.2, dur=0.7, **tucked).move_by((0, 0.24, 0), t=3.25, dur=0.5)
         blue.move((ax, y5 + 0.4, 0), t=3.8, dur=0.55).turn((ax, -5), t=3.8, dur=0.6)      # slides out sideways, turning to face him
         blue.walk((ax, 1.3), t=4.5, dur=0.5)
         red.pose("guard", t=4.6, dur=0.3)
@@ -48,7 +48,8 @@ class CabinFight(Scene):
         red.hit(t=8.7, strength=1.6).collapse(t=8.8, dur=1.0, pose=down)             # falls along the aisle, limbs clear of the seats
         for i, p in enumerate(crowd):
             p.look_at(red.anchor("head"), t=3.0 + 0.2 * (i % 6), hold=5.0)
-            p.pose("cower", t=9.7 + 0.05 * (i % 7), dur=0.5, lift=p.posetrack.default[3] + 0.06, hips=(8, 0, 0), spine=(14, 0, 0), head=(26, 0, 0))
+            p.pose("cower", t=9.7 + 0.05 * (i % 7), dur=0.5, lift=p.posetrack.default[3] + 0.06, hips=(8, 0, 0), spine=(14, 0, 0), head=(26, 0, 0),
+                   hand_l=None, hand_r=None, arm_l=(64, 4), arm_r=(64, 4), elbow_l=128, elbow_r=128)      # arms tucked in front, clear of the wall
 
         # the aircraft lurches
         ship.rotate((-13, 24, 0), t=9.5, dur=1.3, ease="in").shake(0.05, t=9.4, dur=1.4, decay=False)

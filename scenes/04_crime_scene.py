@@ -81,13 +81,10 @@ class CrimeScene(Scene):
         body.color(RED, t=6.2, dur=1.0)
         body.lamp.color(RED).dim(0, t=0).dim(150, t=6.2, dur=1.0)                  # her red pool comes up as the lantern finds her
 
-        cop = s.person(at=(-6.6, 0.1), color=BLUE, hat="helmet", heading=-90)
+        cop = s.person(at=(-6.6, 0.1), color=BLUE, hat="bobby", heading=-90)      # custodian helmet from the kit
         lantern = s.add(Mesh().cyl(0.05, 0.13, at=(0, 0, -0.17), seg=10).cone(0.06, 0.05, at=(0, 0, -0.04), seg=10),
                         color="#ffd28a", mat="flat", glow=1.5, name="lantern")
-        cop.hold(lantern, "r")
-        cop.wear(Mesh().sphere(0.128, at=(0, 0, 0.24), scale=(0.98, 1.08, 1.28), seg=18).sphere(0.022, at=(0, 0, 0.405), seg=10)
-                 .cyl(0.172, 0.016, at=(0, 0.01, 0.214), seg=20),
-                 part="head", color=BLUE)                         # custodian helmet: taller dome + boss over the kit helmet
+        cop.hold(lantern, "r", upright=True)
         hand = (0.3, 0.42, 1.2)                    # lantern held out in front, camera side
         cop.reach("r", cop.anchor(hand), t=0, dur=0.1)
         s.beam(at=hand, aim=(0.25, 3.4, 0.0), length=3.9, angle=34, color="#ffd9a0", power=700, parent=cop)

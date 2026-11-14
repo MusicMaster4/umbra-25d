@@ -677,7 +677,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 if d > lim:
                     hit(who, n, d, t, (float(p[0]), float(p[1]), float(p[2])))
 
-        from .people import HEAD_C, IDX
+        from .people import IDX
 
         def root(n):
             while n.parent is not None:
@@ -698,9 +698,9 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                     continue
                 test(pn.part["pelvis"].world(t, (0, 0, 0.05)), who, 0.05, t, ok=ok)
                 test(pn.part["chest"].world(t, (0, 0, 0.22)), who, 0.05, t, ok=ok)
-                test(pn.part["head"].world(t, (0, 0, HEAD_C)), who, 0.04, t, ok=ok)
+                test(pn.part["head"].world(t, tuple(pn.sk.head_c)), who, 0.04, t, ok=ok)
                 hip = pn.part["pelvis"].world(t, (0, 0, 0.12))
-                cross(hip, pn.part["head"].world(t, (0, 0, HEAD_C * 0.6)), who, t, ok=ok)
+                cross(hip, pn.part["head"].world(t, tuple(pn.sk.head_c * 0.6)), who, t, ok=ok)
                 for side in "lr":                                     # forearms and hands (resting ON a top is fine)
                     elbow, wrist = pn.part["farm_" + side].world(t), pn.part["hand_" + side].world(t)
                     cross(elbow + (wrist - elbow) * 0.3, wrist, who + " (arm)", t, ok=ok, min_r=0.25)

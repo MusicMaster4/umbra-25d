@@ -147,6 +147,8 @@ p = s.person(at=(x, y), color=RED, pose="stand", heading=0, face=(x, y),
   arms_crossed hands_hips hands_up cheer wave point point_up reach_up phone think drink talk shrug carry push
   guard punch punch_l kick (martial) windup strike (football) dive recoil choke grab cower aim salute pray hang
   float fall run_pose dance hug toast`. Lying poses (`lie`, `sprawl`): feet toward the heading, head away from it.
+- The figures are real skinned human bodies; elbows and knees are hinges clamped to 0–150°, and a sole that would
+  go through the person's own floor is held on it (so `lift`, seats and crouches can't sink the feet).
 - joints (degrees, + = forward / outward / up / flexed): `hips spine head (fwd, side, twist)`, `arm_l arm_r leg_l
   leg_r (fwd, out, twist)`, `elbow_l elbow_r knee_l knee_r`, `foot_l foot_r`, `lift` (m), and
   `hand_l hand_r=(x, y, z)` — hand IK target in chest space (x right, y forward, z up from the waist); add a 4th
@@ -155,9 +157,9 @@ p = s.person(at=(x, y), color=RED, pose="stand", heading=0, face=(x, y),
   same heading as the chair. `table=0.75` lays both hands flat on a top that high (wrists above it, forearms level). Sitting down on camera: stand them 0.35 m in front of the seat and pass `step=0.35` (they hinge
   forward and back onto it). `p.stand(t, step=0.3)` leans, rises and ends clear of the seat.
 - **Locomotion templates** — `p.walk(to | [points], t, dur=None, style="walk")`, `p.run(...)`. Styles: `stroll walk
-  march carry sneak limp trudge drunk jog run sprint`. Real gait cycles (stance/swing, heel strike, toe-off, pelvis
-  bob and counter-rotating shoulders), stride matched to speed so feet don't slide; a walk asked to cover ground too
-  fast becomes a jog/run by itself. It eases in/out, turns to face travel, **routes around furniture** (`avoid=False`
+  march carry sneak limp trudge drunk jog run sprint`. Each foot follows a real path (pinned to the ground in stance,
+  heel peel-off, swing arc) and the legs are solved by IK, so feet never slide or sink; a walk asked to cover ground
+  too fast becomes a jog/run by itself. It eases in/out, turns to face travel, **routes around furniture** (`avoid=False`
   to go straight) and sets `.t_end`. The cycle is layered on the current pose: walk from `stand`; from `carry` the
   arms stay on the load. `p.pace(style, t, dur)` = same cycle on the spot (treadmill, or riding something that moves).
 - **Action templates** — `p.act(name, t, dur=None, ...)` plays a full move and returns to the previous pose
@@ -168,7 +170,8 @@ p = s.person(at=(x, y), color=RED, pose="stand", heading=0, face=(x, y),
 - `p.gesture(kind, t, dur)`: `talk nod shake laugh tremble struggle breathe_hard wave sway type chew`
 - `p.hit(t, strength)` recoil · `p.collapse(t)` · `p.hold(prop, "r", upright=True, drop=0.1)` carry a prop in a
   hand (`upright` keeps glasses, cups, trays and lanterns level whatever the arm does)
-- `p.wear(mesh, part="head", at=..., color=RED)` accessory; head part origin = neck base, skull centre 0.17 above
+- `p.wear(mesh, part="head", at=..., color=RED)` accessory; the head part's origin is the neck base and the skull
+  centre is `p.sk.head_c` above it (about 0.12 m) — or position things with `p.anchor("head")`
 - anchors: `p.anchor("head|above|face|chest|hips|hand_l|hand_r|foot_l|foot_r|feet")`
 - extras: `s.figure(at, pose, ...)` (frozen one-mesh statue) · `s.crowd(n, area=((x0,y0),(x1,y1)) | [points],
   face=, poses=, z=, color=, mat=)` — one frozen mesh; to make it react, build a second crowd and swap with show/hide.
