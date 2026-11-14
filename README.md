@@ -33,8 +33,9 @@ python -m umbra render scenes/00_hello.py      # -> out/00_hello.mp4
 
 ## Gallery
 
-Ten 20-second films, each one a single Python file in [`scenes/`](scenes). Scenes 04–10 were written by
-fresh AI agents working from [`AGENTS.md`](AGENTS.md) alone, in at most six contact-sheet iterations each.
+Ten 20-second films, each one a single Python file in [`scenes/`](scenes). The first drafts of scenes 04–10
+were written by fresh AI agents from [`AGENTS.md`](AGENTS.md), in at most six contact-sheet iterations each;
+their friction reports shaped the API you see here.
 
 <table>
 <tr>
@@ -90,7 +91,8 @@ The loop is built to be cheap in tokens:
 | see the whole film | `python -m umbra sheet scene.py` | one image (12 timestamped frames), ~10 s |
 | check a moment | `python -m umbra sheet scene.py -t 4.2 -t 4.6 -t 5.0` | one image |
 | check detail | `python -m umbra still scene.py -t 6.5` | one 1080p frame |
-| deliver | `python -m umbra render scene.py` | mp4, ~8–12 min per 20 s at 1080p on an RTX 3070 |
+| check without rendering | `python -m umbra lint scene.py` | text only, no GPU, ~5 s |
+| deliver | `python -m umbra render scene.py` | mp4; the ten films here took 3–20 min each (median 7) at 1080p on an RTX 3070 |
 
 <p align="center"><img src="docs/media/sheet.jpg" alt="A contact sheet" width="100%"><br>
 <sub>What an agent looks at: one contact sheet of the whole timeline.</sub></p>

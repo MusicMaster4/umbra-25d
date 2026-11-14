@@ -10,7 +10,7 @@ python -m umbra lint   scenes/my_scene.py          # 0. build + all checks, no r
 python -m umbra sheet  scenes/my_scene.py          # 1. ONE image: 12 timestamped frames across the film. Look at it.
 python -m umbra sheet  scenes/my_scene.py -t 4.2 -t 4.4 -t 4.6 -t 4.8 --cols 4   # zoom in on a moment / fast event
 python -m umbra still  scenes/my_scene.py -t 6.5    # 2. one full-quality frame (text legibility, detail)
-python -m umbra render scenes/my_scene.py           # 3. final 1080p mp4 -> out/my_scene.mp4  (~8-12 min / 20 s)
+python -m umbra render scenes/my_scene.py           # 3. final 1080p mp4 -> out/my_scene.mp4  (3-20 min / 20 s; -j 3)
 python -m umbra api trail                           # exact signature + docstring of anything (no Blender needed)
 python -m umbra check out/my_scene.mp4              # flicker meter for a finished video (render runs it for you)
 ```
