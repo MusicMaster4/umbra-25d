@@ -170,6 +170,20 @@ def smoothstep(a, b, x):
     return u * u * (3 - 2 * u)
 
 
+def flick(t, hz=1.0, seed=0.0):
+    """Band-limited shimmer in [-1, 1] for lights and glows. `hz` is the dominant rate; the fastest component is
+    2.6x that and is capped near 4 Hz, because anything faster reads as strobing at 30 fps."""
+    hz = min(max(hz, 0.05), 1.6)
+    w = 2 * math.pi * hz * t
+    return (0.62 * math.sin(w + seed * 12.9898) + 0.28 * math.sin(1.73 * w + seed * 78.233 + 1.3)
+            + 0.10 * math.sin(2.6 * w + seed * 37.719 + 4.1))
+
+
+def _hz(freq):
+    """Accept old-style 'noise frequency' numbers (8-14) as well as plain Hz."""
+    return freq / 8.0 if freq > 4.0 else freq
+
+
 def noise1(x, seed=0.0):
     """Cheap smooth 1D noise in [-1, 1] (sum of incommensurate sines)."""
     return (math.sin(x * 1.0 + seed * 12.9898) * 0.5

@@ -103,9 +103,17 @@ The loop is built to be cheap in tokens:
 <p align="center"><img src="docs/media/looks.jpg" alt="noir, clay, blueprint, dusk, paper" width="100%"></p>
 
 **People** — flat, glowing silhouettes that pose, walk, sit, fight, reach and look at things.
-56 library poses, procedural gait, two-bone hand IK, head tracking, gestures, hats, hair, outfits.
+56 library poses, two-bone hand IK, head tracking, gestures, hats, hair, outfits.
 
 <p align="center"><img src="docs/media/poses.jpg" alt="Pose library" width="100%"></p>
+
+**Motion templates** — nothing is hand-keyed. `p.walk(to, style=...)` plays a real gait cycle (stance and swing,
+heel strike, toe-off, pelvis bob, counter-rotating shoulders) in eleven styles — `stroll walk march carry sneak
+limp trudge drunk jog run sprint` — with the stride matched to the speed so feet never slide, and it routes
+around furniture on its own. `p.act(...)` plays whole moves: `jump pick_up throw punch kick wave clap cheer bow
+look_around check_watch stumble dance climb sit_down stand_up` and more.
+
+<p align="center"><img src="docs/media/gaits.jpg" alt="walk, run, sneak and trudge cycles" width="100%"></p>
 
 **A kit** — furniture, rooms with cut-away walls, buildings and whole cities, cars, an airliner and its
 cabin, helicopter, boats, rocket, train, trees, terrain, water, clouds — plus a small mesh builder
@@ -121,12 +129,20 @@ typefaces. The defaults are deliberately small and sparse.
 **FX** — fire, smoke, explosions, debris, sparks, dust, rain, snow, lightning, splashes; trails, arrows,
 rings, zones and light beams. Particles are analytic, so any frame can be rendered on its own.
 
-**Safeguards** — the usual 3D mistakes are handled before you can make them: meshes are cleaned and
-re-wound outward on build (no inverted normals), coplanar surfaces are layered instead of z-fighting, the
-camera's clip planes are fitted to the scene every frame (no depth shimmer on far detail), teleports and
-forgotten cuts never smear through motion blur, labels stay inside the frame, and a preflight prints
-warnings for things like a camera under the floor. [`tests/safeguards.py`](tests/safeguards.py) stages all of
-these on purpose.
+**Safeguards** — the usual 3D mistakes are handled before you can make them:
+
+| problem | what umbra does |
+|---|---|
+| inverted normals, degenerate faces | every mesh is cleaned and re-wound outward on build |
+| z-fighting | floor sits 4 mm below z=0; coplanar surfaces are stacked in creation order; kit decals stand proud |
+| depth shimmer on far detail | camera clip planes are fitted to the scene every frame (smoothed) |
+| smears across teleports and cuts | instant jumps and forgotten cuts are keyed as hard steps |
+| flicker | light and glow shimmer is band-limited below 4 Hz, low-passed again at bake time, and every render ends with a measured flicker check |
+| clipping | walks route around furniture; a preflight reports who passes through what, when and where — `clipping: person #3 goes through 'table' at t=1.8-2.2s near (-3.9, -2.6, 0.7)` |
+| sliding feet | stride follows speed; a walk asked to go too fast becomes a run |
+| labels off-screen, camera under the floor | labels are clamped; the preflight warns |
+
+[`tests/safeguards.py`](tests/safeguards.py) stages all of these on purpose.
 
 ## How it works
 
@@ -153,6 +169,7 @@ python -m umbra still  scene.py -t T [-t T ...] [-q draft|preview|final|ultra]
 python -m umbra render scene.py [-q final] [-j 2] [--range T0 T1] [--resume] [--nvenc]
 python -m umbra blend  scene.py
 python -m umbra api    [word]          # method signatures + docstrings, e.g. `api trail` (also in docs/API.md)
+python -m umbra check  video.mp4       # flicker meter
 python -m umbra doctor
 ```
 

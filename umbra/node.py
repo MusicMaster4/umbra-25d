@@ -6,7 +6,7 @@ Every animation method takes `t` (start, seconds) and `dur` and returns the node
 """
 import math
 import numpy as np
-from .track import Track, noise1
+from .track import Track, noise1, flick, _hz
 from .xform import trs, v3, Path, yaw_to, norm
 from .colors import lin
 
@@ -183,6 +183,7 @@ class Node:
         v0 = v3(v0)
         sp = np.asarray(spin, float)
         p0 = self.pos.at(t)
+        self._ballistic = True
 
         def at(tt):
             return np.array([p0[0] + v0[0] * tt, p0[1] + v0[1] * tt, p0[2] + v0[2] * tt - 0.5 * g * tt * tt])
@@ -285,15 +286,16 @@ class Node:
         """Emission multiplier (1 = exact colour; >1 hotter)."""
         return self.prop("glow", value, t, dur, ease)
 
-    def flicker(self, t=0.0, dur=1.0, lo=0.2, hi=1.0, freq=14.0):
-        """Unstable light / failing lamp / fire shimmer on the glow prop."""
+    def flicker(self, t=0.0, dur=1.0, lo=0.75, hi=1.0, freq=1.0):
+        """Living shimmer on the glow (flames, bulbs): brightness wanders between lo and hi times its value.
+        freq = dominant rate in Hz (0.3 lazy ... 1.6 nervous). It is band-limited, so it never strobes;
+        for a hard on/off use blink()."""
         tr = self.props.setdefault("glow", Track(1.0))
         seed = (len(self.scene._nodes) * 0.913) % 10
-        base = 1.0
+        hz = _hz(freq)
 
         def f(tt):
-            n = 0.5 + 0.5 * noise1(tt * freq, seed)
-            return (lo + (hi - lo) * n) - base
+            return tr.base(tt) * ((lo + (hi - lo) * (0.5 + 0.5 * flick(tt, hz, seed))) - 1.0)
         tr.add(f, t, t + dur)
         return self
 
@@ -307,6 +309,7 @@ class Node:
     def blink(self, t=0.0, dur=1e6, on=0.5, off=0.5):
         """Hard on/off blinking via alpha (warning lights, cursors)."""
         base = float(self.alpha.default)
+        self._crisp = True
         self.alpha.add(lambda tt: (1.0 if ((tt - t) % (on + off)) < on else 0.0) - base, t, t + dur)
         return self
 
@@ -394,7 +397,10 @@ class Node:
             for name, tr in self.props.items():
                 o[name] = float(tr.default)
                 if tr.animated:
-                    B.scalar(o, f'["{name}"]', [float(tr.at(t)) for t in ts])
+                    vals = [float(tr.at(t)) for t in ts]
+                    if name == "glow" and tr.adds and not getattr(self, "_crisp", False):
+                        vals = B.calm(vals, [float(tr.base(t)) for t in ts])
+                    B.scalar(o, f'["{name}"]', vals, jumps=getattr(tr, "jumps", ()))
         if self._vis_animated():
             vals = [0.0 if self.eff_vis(t) else 1.0 for t in ts]
             B.scalar(o, "hide_render", vals, const=True)
@@ -437,9 +443,13 @@ class LightNode(Node):
             self.power.to(power, t, dur, ease)
         return self
 
-    def flicker(self, t=0.0, dur=1.0, lo=0.2, hi=1.0, freq=14.0):
+    def flicker(self, t=0.0, dur=1e6, lo=0.86, hi=1.0, freq=0.8):
+        """Living light (candle, fire, old bulb): power wanders between lo and hi times its value.
+        freq = dominant rate in Hz (0.3 lazy ... 1.6 nervous). Band-limited so it never strobes; keep hi - lo small
+        (0.1-0.25) when this light dominates the frame. For a hard on/off use blink()."""
         seed = (len(self.scene._nodes) * 0.913) % 10
-        self.power.add(lambda tt: self.power.base(tt) * ((lo + (hi - lo) * (0.5 + 0.5 * noise1(tt * freq, seed))) - 1.0), t, t + dur)
+        hz = _hz(freq)
+        self.power.add(lambda tt: self.power.base(tt) * ((lo + (hi - lo) * (0.5 + 0.5 * flick(tt, hz, seed))) - 1.0), t, t + dur)
         return self
 
     def pulse(self, t=0.0, dur=1e6, lo=0.2, hi=1.0, freq=1.0, **_):
@@ -447,6 +457,9 @@ class LightNode(Node):
         return self
 
     def blink(self, t=0.0, dur=1e6, on=0.5, off=0.5):
+        """Hard on/off (beacons, indicators). Keep each phase >= 0.15 s; faster reads as a strobe."""
+        self._crisp = True
+        on, off = max(on, 0.12), max(off, 0.12)
         self.power.add(lambda tt: 0.0 if ((tt - t) % (on + off)) < on else -self.power.base(tt), t, t + dur)
         return self
 
@@ -462,6 +475,9 @@ class LightNode(Node):
         if self.power.animated or fade:
             if self.power._starts is None:
                 self.power._prep()
-            B.scalar(d, "energy", [max(0.0, float(self.power.at(t))) * self.eff_alpha(t) for t in ts])
+            vals = [max(0.0, float(self.power.at(t))) for t in ts]
+            if self.power.adds and not getattr(self, "_crisp", False):       # safeguard: no strobing light
+                vals = B.calm(vals, [max(0.0, float(self.power.base(t))) for t in ts])
+            B.scalar(d, "energy", [v * self.eff_alpha(t) for v, t in zip(vals, ts)], jumps=self.power.jumps)
         else:
             d.energy = float(self.power.default) * self.eff_alpha(0.0)

@@ -32,3 +32,7 @@ class Sloppy(Scene):
         s.cam.to(pos=(-7, -8, 5), t=3.0, dur=0)
         # 5. things the preflight should flag
         s.person(at=(1.5, 1.5, -0.6), color=WHITE)
+        # 6. clipping: a table in the walker's way (walk() routes around it), and a ghost who insists on going through
+        s.table(at=(-3.5, -2.5))
+        s.person(at=(-5.5, -2.5), color=BLUE).walk((-1.5, -2.5), t=0.5, dur=3)              # avoids the table
+        s.person(at=(-5.5, -3.6), color=AMBER).walk((-1.5, -1.4), t=0.5, dur=3, avoid=False)  # preflight flags it

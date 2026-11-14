@@ -200,18 +200,84 @@ def cmd_render(a):
     encode(fdir, out, fps, meta, a)
     if not a.keep_frames:
         shutil.rmtree(fdir, ignore_errors=True)
+    if not a.range:
+        _print_flicker(out, fps)
     print(out)
     print(f"done in {time.time() - t0:.0f}s")
 
 
-def encode(fdir, out, fps, meta, a):
+def _ffmpeg():
     ff = shutil.which("ffmpeg")
     if not ff:
         try:
             import imageio_ffmpeg
             ff = imageio_ffmpeg.get_ffmpeg_exe()
         except Exception:
-            sys.exit(f"umbra: frames are in {fdir} but ffmpeg was not found. Install ffmpeg (or `pip install imageio-ffmpeg`).")
+            return None
+    return ff
+
+
+def flicker_report(path, fps=30.0):
+    """Measure brightness flicker in a finished video: the curvature of average luma over time (whole frame and
+    each quadrant). Smooth motion, fades and one-off flashes barely register; sustained shimmer does.
+    Returns (percent_of_brightness, worst_second) - under ~0.5 % is calm, above ~0.8 % is visibly flickery."""
+    ff = _ffmpeg()
+    if not ff:
+        return None
+    W, H = 16, 10
+    raw = subprocess.run([ff, "-loglevel", "error", "-i", path, "-vf", f"scale={W}:{H}:flags=area,format=gray", "-f", "rawvideo", "-"],
+                         capture_output=True).stdout
+    n = len(raw) // (W * H)
+    if n < 20:
+        return None
+    regions = [[(x, y) for y in range(H) for x in range(W)]]
+    for qx in (0, 1):
+        for qy in (0, 1):
+            regions.append([(x, y) for y in range(qy * H // 2, (qy + 1) * H // 2) for x in range(qx * W // 2, (qx + 1) * W // 2)])
+    step = max(int(round(fps)), 1)
+    worst, worst_t = 0.0, 0
+    for cells in regions:
+        idx = [y * W + x for x, y in cells]
+        lum = []
+        for i in range(n):
+            f = raw[i * W * H:(i + 1) * W * H]
+            lum.append(sum(f[j] for j in idx) / len(idx))
+        d2 = [lum[i] - (lum[i - 1] + lum[i + 1]) / 2 for i in range(1, n - 1)]
+        per_sec = []
+        for s0 in range(0, len(d2) - step + 1, step):
+            seg = sorted(abs(v) for v in d2[s0:s0 + step])
+            body = seg[:max(1, int(len(seg) * 0.8))]                 # ignore the few biggest frames (cuts, flashes)
+            mean = sum(lum[s0:s0 + step]) / step
+            per_sec.append(((sum(v * v for v in body) / len(body)) ** 0.5 / (mean + 6.0) * 100.0, s0 // step))
+        if not per_sec:
+            continue
+        ranked = sorted(per_sec)
+        sustained = ranked[int(len(ranked) * 0.75)]                  # must hold for a quarter of the film
+        if sustained[0] > worst:
+            worst, worst_t = sustained[0], max(per_sec)[1]
+    return worst, worst_t
+
+
+def _print_flicker(path, fps=30.0):
+    r = flicker_report(path, fps)
+    if r is None:
+        return
+    pct, t = r
+    if pct > 0.8:
+        print(f"warning: flicker {pct:.2f}% of brightness, sustained (worst around t={t}s). Usual causes: light .flicker()/.pulse() "
+              f"with a wide lo-hi range, fast .blink(), many tiny glowing things, or shimmer on thin geometry. Calm is < 0.5%.", flush=True)
+    else:
+        print(f"flicker check: {pct:.2f}% (calm)", flush=True)
+
+
+def cmd_check(a):
+    _print_flicker(os.path.abspath(a.video))
+
+
+def encode(fdir, out, fps, meta, a):
+    ff = _ffmpeg()
+    if not ff:
+        sys.exit(f"umbra: frames are in {fdir} but ffmpeg was not found. Install ffmpeg (or `pip install imageio-ffmpeg`).")
     frames = sorted(glob.glob(os.path.join(fdir, "f_*.png")))
     if not frames:
         sys.exit("umbra: no frames rendered")
@@ -333,6 +399,10 @@ def main(argv=None):
     p = sub.add_parser("blend", help="export an editable .blend")
     common(p)
     p.set_defaults(fn=cmd_blend)
+
+    p = sub.add_parser("check", help="measure flicker in a rendered video")
+    p.add_argument("video")
+    p.set_defaults(fn=cmd_check)
 
     p = sub.add_parser("api", help="print method signatures (optionally filtered): python -m umbra api trail")
     p.add_argument("query", nargs="?", help="substring to search for")

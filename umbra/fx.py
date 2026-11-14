@@ -176,7 +176,7 @@ class FxMixin:
             e = _emitter(at)
             lt = self.light(at=(0, 0, 0), color="#ff8a2a", power=160.0 * size * size, radius=0.3 * size, name="fire_light")
             lt.pos = FnTrack(lambda tt: e(tt) + dvec * 0.5 * size)
-            lt.flicker(t, (out or self.duration + 1) - t, 0.55, 1.0, 11.0)
+            lt.flicker(t, (out or self.duration + 1) - t, 0.72, 1.0, 1.4)
             lt.power.default = 0.0 if t > 0 else lt.power.default
             if t > 0:
                 lt.power.to(160.0 * size * size, t, 0.3)

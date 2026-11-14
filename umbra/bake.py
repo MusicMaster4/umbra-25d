@@ -22,6 +22,19 @@ class Baker:
             ad.action = bpy.data.actions.new("umbra_" + idb.name)
         return ad.action.fcurve_ensure_for_datablock(idb, path, index=index)
 
+    def calm(self, values, base):
+        """Flicker limiter: low-pass whatever rides on top of `base` (shimmer, noise) to below ~4 Hz.
+        Deliberate changes live in `base` and are left alone. Only applied when frames are consecutive."""
+        v, b = np.asarray(values, dtype=np.float64), np.asarray(base, dtype=np.float64)
+        if len(v) < 5 or not np.all(np.diff(self.frames) == 1):
+            return list(v)
+        d = v - b
+        k = np.array([1, 4, 6, 4, 1], dtype=np.float64)
+        k /= k.sum()
+        for _ in range(2 if self.fps >= 30 else 1):
+            d = np.convolve(np.pad(d, 2, mode="edge"), k, mode="valid")
+        return list(np.maximum(b + d, 0.0))
+
     def _interp(self, jumps):
         if not jumps:
             return self.interp

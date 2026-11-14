@@ -10,7 +10,7 @@ class DinnerDate(Scene):
     def build(s):
         WARM = "#ffbf7a"
         s.room(size=(10, 7.5), h=3.0, walls="nw", doors=[("n", 3.2, 1.0)], windows=[("w", 0.4, 2.2)], color="#2c2824")
-        s.door(at=(3.2, 3.75), color="#3a342e").open(t=1.0, dur=0.8, angle=-80)
+        s.door(at=(3.2, 3.75), rot=180, color="#3a342e").open(t=1.0, dur=0.8, angle=95)
         s.shelf(at=(-0.6, 3.45), size=(3.6, 0.35, 2.1), levels=4, boxes=0.9, color="#3d372f", seed=4)
         s.plant(at=(-4.4, 3.1), h=1.5, color="#3f4a3a"); s.plant(at=(4.5, -2.6), h=1.2, color="#3f4a3a", seed=2)
 

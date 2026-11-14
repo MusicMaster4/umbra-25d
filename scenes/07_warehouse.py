@@ -57,7 +57,8 @@ class Warehouse(Scene):
         s.room(size=(4.5, 4.4), h=2.6, at=(9.75, 5.8), walls="w", doors=[("w", 0, 1.0)])
         s.wall((7.5, 3.6), (12, 3.6), h=1.0)
         s.desk(at=(10.3, 7.3))
-        s.chair(at=(10.3, 6.55))
+        office_chair = s.chair(at=(10.3, 6.55))
+        office_chair.move_by((0.75, -0.55, 0), t=11.0, dur=0.6, ease="out")          # shoved back as he jumps up
         s.plant(at=(8.1, 7.4))
         s.box((0.5, 0.6, 1.3), at=(8.0, 4.2, 0))
 
@@ -165,6 +166,7 @@ class Warehouse(Scene):
 
         sup = s.person(at=(10.3, 6.55), color=DARK, heading=0, hair="bald", hat="cap").sit(seat=0.46)
         sup.stand(t=11.2)
+        sup.stand(t=11.1, dur=0.8, step=0.0)
         sup.run([(9.2, 5.8), (7.0, 5.7), (6.3, 4.6), (6.4, -2.0), (8.5, -5.3)], t=11.9, dur=3.8)
         sup.turn(w1, t=15.72, dur=0.3).pose("talk", t=16.1, dur=0.4).pose("phone", t=17.6, dur=0.5)
 

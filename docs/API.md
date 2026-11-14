@@ -57,8 +57,8 @@
 - `bottle(at=(0, 0, 0), **kw)`
 - `glass(at=(0, 0, 0), wine=True, **kw)`
 - `plate(at=(0, 0, 0), r=0.13, **kw)`
-- `candle(at=(0, 0, 0), h=0.16, power=14.0, color='#ffb45e', t=0.0, **kw)`  
-  Candle with a flickering flame and warm light. Returns the group; .flame, .light.
+- `candle(at=(0, 0, 0), h=0.16, power=14.0, color='#ffb45e', t=0.0, shadow=False, **kw)`  
+  Candle with a gently breathing flame and warm light. Returns the group; .flame, .light. shadow=True makes its light cast shadows (costs render time; use it on the hero candle only).
 - `lamp(at=(0, 0), kind='pendant', h=2.4, color='#ffd9a0', power=None, on=True, rot=0, **kw)`  
   pendant (hangs from h) | floor | desk | street (modern, arm toward +Y) | gas (Victorian post lamp). power in watts (default per kind: 260 / 260 / 60 / 1500 / 420). Returns a group with .light and .bulb; rot turns the whole lamp.
 - `door(at=(0, 0), w=0.9, h=2.05, rot=0, frame=True, **kw)`  
@@ -232,8 +232,8 @@
   Animate a custom shader prop: glow, reveal, trim, dash, phase.
 - `glow(value, t=0.0, dur=0.0, ease='inout')`  
   Emission multiplier (1 = exact colour; >1 hotter).
-- `flicker(t=0.0, dur=1.0, lo=0.2, hi=1.0, freq=14.0)`  
-  Unstable light / failing lamp / fire shimmer on the glow prop.
+- `flicker(t=0.0, dur=1.0, lo=0.75, hi=1.0, freq=1.0)`  
+  Living shimmer on the glow (flames, bulbs): brightness wanders between lo and hi times its value. freq = dominant rate in Hz (0.3 lazy ... 1.6 nervous). It is band-limited, so it never strobes; for a hard on/off use blink().
 - `pulse(t=0.0, dur=1000000.0, lo=0.4, hi=1.0, freq=1.0, prop='glow')`  
   Smooth periodic pulse (beacons, alarms).
 - `blink(t=0.0, dur=1000000.0, on=0.5, off=0.5)`  
@@ -248,23 +248,31 @@
 ## LightNode
 
 - `dim(power, t=0.0, dur=0.5, ease='inout')`
-- `flicker(t=0.0, dur=1.0, lo=0.2, hi=1.0, freq=14.0)`
+- `flicker(t=0.0, dur=1000000.0, lo=0.86, hi=1.0, freq=0.8)`  
+  Living light (candle, fire, old bulb): power wanders between lo and hi times its value. freq = dominant rate in Hz (0.3 lazy ... 1.6 nervous). Band-limited so it never strobes; keep hi - lo small (0.1-0.25) when this light dominates the frame. For a hard on/off use blink().
 - `pulse(t=0.0, dur=1000000.0, lo=0.2, hi=1.0, freq=1.0, **_)`
-- `blink(t=0.0, dur=1000000.0, on=0.5, off=0.5)`
+- `blink(t=0.0, dur=1000000.0, on=0.5, off=0.5)`  
+  Hard on/off (beacons, indicators). Keep each phase >= 0.15 s; faster reads as a strobe.
 - `color(c, t=0.0, dur=0.0, ease='inout')`
 
 ## Person
 
 - `pose(spec=None, t=0.0, dur=0.5, ease='inout', mirror=False, **over)`  
   Blend to a library pose (name), a dict of joints, and/or joint overrides as kwargs. Keyword-only joints tweak the pose the figure is in at that moment.
-- `sit(t=0.0, dur=0.7, seat=0.46, pose='sit', **over)`  
-  Sit on something whose top is `seat` metres high (stand the figure in front of / on the seat spot).
-- `stand(t=0.0, dur=0.7)`
+- `sit(t=0.0, dur=1.0, seat=0.46, pose='sit', step=0.0, **over)`  
+  Sit on something whose top is `seat` metres high. Already seated at the start: put the figure AT the seat (same heading as the chair). Sitting down on camera: stand the figure ~0.35 m in front of the seat and pass step=0.35 - it hinges forward, backs onto the seat and settles (standing inside a chair first would clip).
+- `stand(t=0.0, dur=1.0, step=0.3)`  
+  Stand up (or return to a neutral standing pose). From a seat it leans forward, rises, and ends `step` metres in front of the seat so the legs are clear of it.
 - `layer(fn, t0=0.0, t1=1000000000.0)`  
   Additive pose layer: fn(t, add) where add(joint, values) offsets a joint.
-- `walk(to, t=0.0, dur=None, speed=1.15, run=False, turn=True, ease=None)`  
-  Walk (or run=True) to a point or through a list of points. dur defaults to distance / speed (m/s); it eases in and out. The gait is layered on top of the current pose, so walk from "stand". Sets .t_end.
-- `run(to, t=0.0, dur=None, speed=4.2, **kw)`
+- `walk(to, t=0.0, dur=None, speed=None, style='walk', run=False, turn=True, ease=None, avoid=True)`  
+  Travel to a point (or through a list of points) on foot. Sets .t_end (arrival time). style: stroll walk march carry sneak limp trudge drunk jog run sprint (see GAITS). dur defaults to distance / the style's speed; if you give a dur that implies a faster or slower pace, the stride adapts and a walk that would have to slide turns into a jog / run by itself. The cycle is layered on the current pose (walk from "stand"; walk from "carry" keeps the arms on the load). avoid=True routes around furniture.
+- `run(to, t=0.0, dur=None, speed=None, style='run', **kw)`  
+  Run to a point / through points (style: jog run sprint). Same options as walk().
+- `pace(style='walk', t=0.0, dur=4.0)`  
+  Walk / run on the spot (treadmill, or when something else moves the figure: escalator, parented vehicle, a .follow() path). Same styles as walk().
+- `act(name, t=0.0, dur=None, **kw)`  
+  Play a ready-made action, then return to the pose the figure was in. Names (and options): jump(height=0.45, dist=0) hop pick_up(target=None, side="r") throw(side="r") punch(side="r") kick wave clap cheer bow shrug look_around check_watch facepalm point(target) stumble flinch dance celebrate climb(height=2.5) sit_down(seat=0.46) stand_up knock drink type wait Each has a natural default duration; pass dur to stretch it.
 - `turn(toward, t=0.0, dur=0.5)`  
   Face a world point (x, y), a Node, or a heading in degrees.
 - `reach(side, target, t=0.0, dur=0.5, hold=1000000000.0, blend_out=0.4)`  

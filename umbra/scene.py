@@ -59,6 +59,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
     fps = 30
     size = (1920, 1080)
     ground = True          # set False for space / sky / abstract scenes
+    check_clipping = True  # preflight warning when people / movers pass through solid props
     seed = 7
 
     # ------------------------------------------------------------------ setup
@@ -305,7 +306,9 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
             v = variants[int(rng.integers(len(variants)))]
             hd = yaw_to(q, face) + rng.uniform(-25, 25) if face is not None else rng.uniform(0, 360)
             m.add(v, at=(q[0], q[1], q[2] if len(q) > 2 else z), rot=(0, 0, hd), scale=rng.uniform(*height) / 1.75)
-        return self.add(m, color=color or self.look.person, mat=mat, name=name, ink=False, parent=parent)
+        n = self.add(m, color=color or self.look.person, mat=mat, name=name, ink=False, parent=parent)
+        n.solid = False                              # extras: not an obstacle for the clipping check
+        return n
 
     # ------------------------------------------------------------------ lights
     def light(self, at=(0, 0, 3), color="white", power=200.0, kind="point", radius=0.15, shadow=True,
@@ -545,6 +548,221 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         far = max(far * 1.08, (max(big) * 1.05 + float(np.linalg.norm(np.asarray(cam_pos), axis=1).max())) if big else 0.0)
         return near, far
 
+    # ------------------------------------------------------------------ clipping (things passing through things)
+    def _solids(self):
+        """Props that count as solid obstacles: [(node, static, world_lo, world_hi)]."""
+        out = []
+        for n in self._mesh_nodes():
+            if not getattr(n, "solid", True) or getattr(n, "is_ground", False):
+                continue
+            if getattr(n, "mat", None) in ("beam", "water", "sky", "stroke", "glass", "ink") or float(n.alpha.default) < 0.5:
+                continue
+            c, r, lo, hi = self._bounds(n)
+            if r > 400 or float((hi - lo).min()) < 0.03:                      # sky / water / flat decals
+                continue
+            a, attached = n.parent, False
+            while a is not None:
+                if type(a).__name__ in ("PartNode", "Person"):                # held or worn
+                    attached = True
+                a = a.parent
+            if attached:
+                continue
+            st = self._static(n)
+            wlo = whi = None
+            if st:
+                m = n.matrix(0.0)
+                pts = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]) @ m[:3, :3].T + m[:3, 3]
+                wlo, whi = pts.min(axis=0), pts.max(axis=0)
+            out.append((n, st, wlo, whi))
+        return out
+
+    def _bvh(self, n):
+        if not hasattr(n, "_bvh_tree"):
+            from mathutils.bvhtree import BVHTree
+            me = n.obj.data
+            mi = np.zeros(len(me.polygons), dtype=np.int32)
+            me.polygons.foreach_get("material_index", mi)
+            polys = [tuple(p.vertices) for p, k in zip(me.polygons, mi) if k == 0]
+            n._bvh_tree = BVHTree.FromPolygons([tuple(v.co) for v in me.vertices], polys) if polys else None
+        return n._bvh_tree
+
+    def _depth_inside(self, n, minv, p):
+        """How far world point p is inside solid node n (0 if outside)."""
+        from mathutils import Vector
+        tree = self._bvh(n)
+        if tree is None:
+            return 0.0
+        q = minv[:3, :3] @ p + minv[:3, 3]
+        loc, nrm, idx, dist = tree.find_nearest(Vector(q))
+        if loc is None or (Vector(q) - loc).dot(nrm) >= 0:
+            return 0.0
+        return float(dist) / max(float(np.linalg.norm(minv[:3, 0])), 1e-9)
+
+    def _clip_check(self):
+        solids = self._solids()
+        if not solids:
+            return
+        inv = {}
+        people = [n for n in self._nodes if type(n).__name__ == "Person" and n.obj is not None]
+        movers = [(n, self._bounds(n)) for n, st, lo, hi in solids if not st]
+        ts = [i * 0.2 for i in range(int(self.duration / 0.2) + 1)]
+        found = {}
+
+        def minv(n, st, t):
+            if st:
+                if n not in inv:
+                    inv[n] = np.linalg.inv(n.matrix(0.0))
+                return inv[n]
+            return np.linalg.inv(n.matrix(t))
+
+        def hit(who, n, depth, t, where):
+            k = (who, n.name, id(n))
+            e = found.setdefault(k, [0.0, t, t, where, 0, -1.0])
+            if depth > e[0]:
+                e[0], e[3] = depth, where
+            if t - e[5] > 1e-6:                                      # count distinct sample times
+                e[4] += 1
+                e[5] = t
+            e[2] = t
+
+        def cross(a, b, who, t):
+            """Does the body segment a-b pierce a solid surface? Catches thin things (table tops, rails, doors)."""
+            from mathutils import Vector
+            mid, half = (a + b) / 2, float(np.linalg.norm(b - a)) / 2
+            for n, st, lo, hi in solids:
+                if not n.eff_vis(t):
+                    continue
+                if st and (np.any(mid < lo - half) or np.any(mid > hi + half)):
+                    continue
+                if not st:
+                    c, r = self._bounds(n)[:2]
+                    m = n.matrix(t)
+                    if float(np.linalg.norm(m[:3, :3] @ c + m[:3, 3] - mid)) > r * float(np.linalg.norm(m[:3, 0])) + half:
+                        continue
+                tree = self._bvh(n)
+                if tree is None:
+                    continue
+                mi = minv(n, st, t)
+                p, q = mi[:3, :3] @ a + mi[:3, 3], mi[:3, :3] @ b + mi[:3, 3]
+                d = q - p
+                ln = float(np.linalg.norm(d))
+                if ln < 1e-6:
+                    continue
+                loc = tree.ray_cast(Vector(p), Vector(d / ln), ln)[0]
+                if loc is not None:
+                    hit(who, n, 0.12, t, (float(mid[0]), float(mid[1]), float(mid[2])))
+
+        def test(p, who, lim, t, skip=None, pad=0.0, same=None):
+            for n, st, lo, hi in solids:
+                if n is skip or not n.eff_vis(t):
+                    continue
+                if same is not None and root(n) is same:                 # parts of one assembly overlap on purpose
+                    continue
+                if st and (np.any(p < lo - pad) or np.any(p > hi + pad)):
+                    continue
+                if not st:
+                    c, r = self._bounds(n)[:2]
+                    m = n.matrix(t)
+                    if float(np.linalg.norm(m[:3, :3] @ c + m[:3, 3] - p)) > r * float(np.linalg.norm(m[:3, 0])) + pad:
+                        continue
+                d = self._depth_inside(n, minv(n, st, t), p)
+                if d > lim:
+                    hit(who, n, d, t, (float(p[0]), float(p[1]), float(p[2])))
+
+        from .people import HEAD_C, IDX
+
+        def root(n):
+            while n.parent is not None:
+                n = n.parent
+            return n
+
+        def thrown(n):
+            while n is not None:
+                if getattr(n, "_ballistic", False):
+                    return True
+                n = n.parent
+            return False
+        for i, pn in enumerate(people):
+            who = pn.name if pn.name != "person" else f"person #{i + 1}"
+            for t in ts:
+                if not pn.eff_vis(t):
+                    continue
+                test(pn.part["pelvis"].world(t, (0, 0, 0.05)), who, 0.05, t)
+                test(pn.part["chest"].world(t, (0, 0, 0.22)), who, 0.05, t)
+                test(pn.part["head"].world(t, (0, 0, HEAD_C)), who, 0.04, t)
+                hip = pn.part["pelvis"].world(t, (0, 0, 0.12))
+                cross(hip, pn.part["head"].world(t, (0, 0, HEAD_C * 0.6)), who, t)
+                if float(pn.posetrack.at(t)[IDX["lift"]][0]) > -0.2:      # seated / crouched legs tuck under things by design
+                    for side in "lr":
+                        knee = pn.part["shin_" + side].world(t)
+                        cross(pn.part["thigh_" + side].world(t, (0, 0, -0.1)), knee, who, t)
+                        cross(knee, pn.part["foot_" + side].world(t, (0, 0, 0.06)), who, t)
+        for n, (c, r, lo, hi) in movers:
+            if type(n).__name__ == "Person" or thrown(n):            # thrown / falling debris may pile up
+                continue
+            rn = root(n)
+            corners = [c] + [c + (np.array([x, y, z]) - c) * 0.6 for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]
+            for t in ts[::2]:
+                if not n.eff_vis(t):
+                    continue
+                m = n.matrix(t)
+                for q in corners:
+                    test(m[:3, :3] @ q + m[:3, 3], n.name, 0.15, t, skip=n, same=rn)
+        for t in ts[::2]:                                            # camera inside something
+            test(self.cam.pos.base(t), "camera", 0.02, t)
+        for i, a in enumerate(people):                               # two bodies merged into one blob
+            for b in people[i + 1:]:
+                run = 0
+                for t in ts:
+                    if a.eff_vis(t) and b.eff_vis(t) and float(np.linalg.norm(a.part["pelvis"].world(t) - b.part["pelvis"].world(t))) < 0.2:
+                        run += 1
+                        if run == 3:
+                            self.warn(f"clipping: two people occupy the same spot at t={t:.1f}s near "
+                                      f"({a.world(t)[0]:.1f}, {a.world(t)[1]:.1f}) - move one of them at least 0.45 m away")
+                            break
+                    else:
+                        run = 0
+        rows = sorted(((k, v) for k, v in found.items() if v[4] >= 2), key=lambda kv: -kv[1][0])     # ignore one-sample grazes
+        for (who, name, _), (depth, t0, t1, w, cnt, _t) in rows[:8]:
+            span = f"t={t0:.1f}s" if t1 - t0 < 0.25 else f"t={t0:.1f}-{t1:.1f}s"
+            self.warn(f"clipping: {who} goes through '{name}' at {span} near ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f}) "
+                      f"- move one of them or route around (node.solid = False silences an intended overlap)")
+        if len(rows) > 8:
+            self.warn(f"clipping: ...and {len(rows) - 8} more overlaps")
+
+    def _obstacles(self):
+        """Footprints (x0, y0, x1, y1) of furniture-sized static props, for walk() to route around."""
+        out = []
+        for n, st, lo, hi in self._solids():
+            if not st or lo[2] > 1.2 or hi[2] < 0.25:                # hanging things / floor clutter you step over
+                continue
+            if max(hi[0] - lo[0], hi[1] - lo[1]) > 7.0:              # rooms, vehicles you stand in, city blocks
+                continue
+            out.append(((float(lo[0]), float(lo[1]), float(hi[0]), float(hi[1])), n))
+        return out
+
+    def _blocks(self, n, a, b, half=0.2):
+        """Would a body walking from a to b actually hit node n? (Rays at several heights; doorways and arches pass.)"""
+        from mathutils import Vector
+        tree = self._bvh(n)
+        if tree is None:
+            return False
+        mi = np.linalg.inv(n.matrix(0.0))
+        d = np.array([b[0] - a[0], b[1] - a[1], 0.0])
+        ln = float(np.linalg.norm(d))
+        if ln < 1e-6:
+            return False
+        side = np.array([-d[1], d[0], 0.0]) / ln * half
+        for z in (0.15, 0.3, 0.45, 0.6, 0.75, 0.95, 1.25):
+            for off in (side * 0, side, -side):
+                p0 = np.array([a[0], a[1], a[2] + z]) + off
+                p, q = mi[:3, :3] @ p0 + mi[:3, 3], mi[:3, :3] @ (p0 + d) + mi[:3, 3]
+                dd = q - p
+                l2 = float(np.linalg.norm(dd))
+                if tree.ray_cast(Vector(p), Vector(dd / l2), l2)[0] is not None:
+                    return True
+        return False
+
     def _preflight(self, B):
         """Cheap checks that catch the usual staging mistakes before a single frame is rendered."""
         ts = B.times[::max(1, len(B.times) // 40)]
@@ -569,6 +787,11 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 if p[2] < g - 0.12:
                     self.warn(f"person '{n.name}' is {g - p[2]:.2f} m below the ground at t={t:.1f}s (at={p[0]:.1f}, {p[1]:.1f}, {p[2]:.2f})")
                     break
+        if self.check_clipping:
+            try:
+                self._clip_check()
+            except Exception as ex:                                  # a check must never stop a render
+                print("UMBRA_WARN clipping check skipped:", repr(ex))
 
     def _auto_cuts(self, times):
         """A camera that teleports without cam.cut() would smear across the frame; treat big jumps as cuts."""

@@ -185,6 +185,153 @@ def _mirror(v):
     return o
 
 
+# ----------------------------------------------------------------------------- locomotion
+# v = natural speed (m/s), stride = length of one full cycle (two steps), angles in degrees.
+GAITS = {
+    #            speed  stride  hip   knee  arm   elbow  e_sw  lean  bob    twist sway  stance
+    "stroll": dict(v=0.85, stride=1.15, leg=19, knee=48, arm=13, elb=8, esw=8, lean=1.0, bob=0.018, twist=4, sway=3.5, stance=0.62),
+    "walk":   dict(v=1.25, stride=1.45, leg=25, knee=60, arm=21, elb=10, esw=14, lean=3.0, bob=0.028, twist=6, sway=3.0, stance=0.60),
+    "march":  dict(v=1.5, stride=1.5, leg=30, knee=52, arm=38, elb=2, esw=4, lean=0.0, bob=0.022, twist=3, sway=1.2, stance=0.60),
+    "carry":  dict(v=1.05, stride=1.25, leg=22, knee=54, arm=0, elb=0, esw=0, lean=-2.0, bob=0.022, twist=3, sway=3.5, stance=0.62),
+    "sneak":  dict(v=0.7, stride=0.95, leg=22, knee=62, arm=5, elb=64, esw=4, lean=15.0, bob=0.012, twist=5, sway=2.0, stance=0.66, lift=-0.12,
+                   crouch=42, arms=(26, 14), head=-12),
+    "limp":   dict(v=0.75, stride=0.95, leg=20, knee=46, arm=14, elb=14, esw=8, lean=5.0, bob=0.02, twist=4, sway=4.0, stance=0.62, limp=0.5),
+    "trudge": dict(v=0.8, stride=1.05, leg=19, knee=42, arm=7, elb=6, esw=4, lean=6.0, bob=0.02, twist=3, sway=5.0, stance=0.64, head=16),
+    "drunk":  dict(v=0.7, stride=1.0, leg=21, knee=54, arm=16, elb=18, esw=10, lean=4.0, bob=0.024, twist=6, sway=6.0, stance=0.62, weave=0.3,
+                   wobble=9.0),
+    "jog":    dict(v=2.6, stride=2.0, leg=31, knee=84, arm=30, elb=80, esw=8, lean=8.0, bob=0.045, twist=8, sway=2.0, stance=0.42, flight=True),
+    "run":    dict(v=4.2, stride=2.9, leg=43, knee=104, arm=46, elb=88, esw=8, lean=13.0, bob=0.06, twist=10, sway=2.0, stance=0.36, flight=True),
+    "sprint": dict(v=6.5, stride=3.8, leg=53, knee=120, arm=60, elb=94, esw=6, lean=20.0, bob=0.07, twist=12, sway=1.5, stance=0.30, flight=True),
+}
+
+
+def _sm(u):
+    u = min(max(u, 0.0), 1.0)
+    return u * u * u * (u * (6 * u - 15) + 10)
+
+
+def _bump(ph, a, peak, b):
+    """0 -> 1 -> 0 between phases a and b with the top at `peak` (smooth both ways)."""
+    if ph <= a or ph >= b:
+        return 0.0
+    return _sm((ph - a) / (peak - a)) if ph < peak else _sm((b - ph) / (b - peak))
+
+
+def _gait_pose(G, cyc, env, amp, add, tt, seed):
+    """One instant of a walk / run cycle. cyc = cycles travelled (fractional), env = 0..1 blend, amp = stride scale.
+    Each leg has a stance phase (foot on the ground, hip sweeping back at constant speed so the foot does not slide)
+    and a swing phase (knee folds, foot clears, leg reaches forward)."""
+    st = G["stance"]
+    A, Ab = G["leg"] * amp, G["leg"] * amp * (0.78 if G.get("flight") else 0.92)
+    for side, off, sg in (("l", 0.0, -1.0), ("r", 0.5, 1.0)):
+        ph = (cyc + off) % 1.0
+        k = env
+        if G.get("limp") and side == "r":
+            k *= G["limp"]
+        if ph < st:                                   # stance: heel strike (+A) -> toe off (-Ab)
+            u = ph / st
+            hip = A - (A + Ab) * u
+            knee = 5 + (16 if not G.get("flight") else 34) * _bump(u, 0.0, 0.2, 0.55) + 30 * _sm((u - 0.78) / 0.22)
+            foot = 14 * (1 - _sm(u / 0.14)) - 26 * _sm((u - 0.72) / 0.28)
+        else:                                         # swing: fold, clear the ground, reach
+            u = (ph - st) / (1 - st)
+            hip = -Ab + (A + Ab) * _sm(u * 1.04) + 3 * math.sin(math.pi * u)
+            knee = 35 * (1 - _sm(u / 0.3)) + G["knee"] * _bump(u, 0.0, 0.32, 0.98) + 5 * _sm(u)
+            foot = -26 * (1 - _sm(u / 0.5)) + 14 * _sm((u - 0.6) / 0.4)
+        cr = G.get("crouch", 0.0)                     # bent-knee gaits: fold the leg so the lowered hips still reach the floor
+        add("leg_" + side, ((hip * k + cr * 0.5 * env), 0, 0))
+        add("knee_" + side, knee * k + cr * env)
+        add("foot_" + side, foot * k + cr * 0.5 * env)
+        w = 2 * math.pi * ph
+        swing = -math.cos(w)                          # arm opposes the leg on its own side
+        add("arm_" + side, (G["arm"] * amp * swing * env, 0, 0))
+        add("elbow_" + side, (G["elb"] + G["esw"] * max(0.0, swing)) * env)
+        if G.get("arms"):                             # carried forward (sneaking)
+            add("arm_" + side, (G["arms"][0] * env, G["arms"][1] * env, 0))
+    w = 2 * math.pi * cyc
+    lift = G.get("lift", 0.0)
+    if G.get("flight"):
+        bob = G["bob"] * (math.sin(2 * w - 0.4))      # up in flight, down at mid-stance
+    else:
+        bob = -G["bob"] * (0.5 + 0.5 * math.cos(2 * w))   # lowest when both feet are down, highest at mid-stance
+    if G.get("limp"):
+        bob -= 0.035 * max(0.0, math.sin(w + math.pi))
+        add("spine", (0, -7 * max(0.0, math.sin(w + math.pi)) * env, 0))
+    add("lift", (bob + lift) * env)
+    sway = G["sway"]
+    add("hips", (G["lean"] * env, sway * math.sin(w) * env, -G["twist"] * 0.6 * math.cos(w) * env))
+    add("spine", (G["lean"] * 0.5 * env, -sway * 0.8 * math.sin(w) * env, G["twist"] * 1.4 * math.cos(w) * env))
+    add("head", ((G.get("head", 0.0) - G["lean"] * 0.7 + 1.2 * math.sin(2 * w)) * env, 0, -G["twist"] * 0.8 * math.cos(w) * env))
+    if G.get("wobble"):
+        q = G["wobble"]
+        add("spine", (0.4 * q * noise1(tt * 1.3, seed + 2) * env, q * noise1(tt * 0.9, seed) * env, 0))
+        add("head", (0.6 * q * noise1(tt * 1.1, seed + 4) * env, 0.8 * q * noise1(tt * 0.8, seed + 6) * env, 0))
+
+
+def _seg_hits(a, b, r):
+    """Does segment a-b cross rectangle r = (x0, y0, x1, y1)? (Liang-Barsky)"""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    t0, t1 = 0.0, 1.0
+    for p, q in ((-dx, a[0] - r[0]), (dx, r[2] - a[0]), (-dy, a[1] - r[1]), (dy, r[3] - a[1])):
+        if abs(p) < 1e-12:
+            if q < 0:
+                return False
+        else:
+            u = q / p
+            if p < 0:
+                t0 = max(t0, u)
+            else:
+                t1 = min(t1, u)
+            if t0 > t1:
+                return False
+    return t1 - t0 > 1e-6
+
+
+def _route(pts, obstacles, margin, blocks=None):
+    """Insert way-points so the polyline goes round furniture-sized obstacles instead of through them.
+    Obstacles that contain the start or the destination are ignored (you are meant to be there), and so are
+    things the body would not actually touch on that line (doorways, arches, goal mouths)."""
+    def inside(p, r):
+        return r[0] < p[0] < r[2] and r[1] < p[1] < r[3]
+    grown, owner = [], {}
+    for r, node in obstacles:
+        g = (r[0] - margin, r[1] - margin, r[2] + margin, r[3] + margin)
+        if any(inside(p, g) for p in pts):
+            continue
+        if blocks is not None and not any(blocks(node, pts[i], pts[i + 1]) for i in range(len(pts) - 1)):
+            continue
+        grown.append(g)
+    if not grown:
+        return pts
+    out = [pts[0]]
+    for b in pts[1:]:
+        guard = 0
+        while guard < 8:
+            guard += 1
+            a = out[-1]
+            block = [r for r in grown if _seg_hits(a, b, r)]
+            if not block:
+                break
+            r = min(block, key=lambda r: (max(r[0], min(a[0], r[2])) - a[0]) ** 2 + (max(r[1], min(a[1], r[3])) - a[1]) ** 2)
+            e = 0.04
+            cs = [(r[0] - e, r[1] - e), (r[2] + e, r[1] - e), (r[2] + e, r[3] + e), (r[0] - e, r[3] + e)]
+            shrunk = (r[0] + 1e-3, r[1] + 1e-3, r[2] - 1e-3, r[3] - 1e-3)
+            best = None
+            cands = [[c] for c in cs] + [[cs[i], cs[(i + 1) % 4]] for i in range(4)] + [[cs[(i + 1) % 4], cs[i]] for i in range(4)]
+            for via in cands:
+                chain = [a] + [np.array([c[0], c[1], a[2]]) for c in via] + [b]
+                if any(_seg_hits(chain[i], chain[i + 1], shrunk) for i in range(len(chain) - 1)):
+                    continue
+                ln = sum(float(np.linalg.norm(chain[i + 1][:2] - chain[i][:2])) for i in range(len(chain) - 1))
+                if best is None or ln < best[0]:
+                    best = (ln, chain[1:-1])
+            if best is None:
+                break
+            out.extend(best[1])
+        out.append(b)
+    return out
+
+
 def _r3(m):
     return m[:3, :3]
 
@@ -649,12 +796,33 @@ class Person(Node):
         self._cache.clear()
         return self
 
-    def sit(self, t=0.0, dur=0.7, seat=0.46, pose="sit", **over):
-        """Sit on something whose top is `seat` metres high (stand the figure in front of / on the seat spot)."""
-        lift = (seat + 0.085) / (self.height / 1.75) - HIP_H
-        return self.pose(pose, t, dur, lift=lift, **over)
+    def _step(self, t, dur, dist):
+        """Shift the figure along its own heading by dist metres (negative = backwards)."""
+        if abs(dist) > 1e-6:
+            yaw = math.radians(float(self.rot.at(t)[2]))
+            self.move_by((-math.sin(yaw) * dist, math.cos(yaw) * dist, 0), t, dur, "inout")
 
-    def stand(self, t=0.0, dur=0.7):
+    def sit(self, t=0.0, dur=1.0, seat=0.46, pose="sit", step=0.0, **over):
+        """Sit on something whose top is `seat` metres high. Already seated at the start: put the figure AT the seat
+        (same heading as the chair). Sitting down on camera: stand the figure ~0.35 m in front of the seat and pass
+        step=0.35 - it hinges forward, backs onto the seat and settles (standing inside a chair first would clip)."""
+        lift = (seat + 0.085) / (self.height / 1.75) - HIP_H
+        if t <= 0 and not self.posetrack.segs:
+            return self.pose(pose, t, dur, lift=lift, **over)
+        self._step(t, dur * 0.7, -step)
+        self.pose("crouch", t, dur * 0.5, ease="inout", lift=lift * 0.55, hips=(30, 0, 0), spine=(24, 0, 0), head=(-18, 0, 0),
+                  knee_l=70, knee_r=70, leg_l=(62, 6), leg_r=(62, 6), foot_l=0, foot_r=0, arm_l=(30, 10), arm_r=(30, 10))
+        return self.pose(pose, t + dur * 0.5, dur * 0.5, ease="out2", lift=lift, **over)
+
+    def stand(self, t=0.0, dur=1.0, step=0.3):
+        """Stand up (or return to a neutral standing pose). From a seat it leans forward, rises, and ends `step`
+        metres in front of the seat so the legs are clear of it."""
+        cur = self.posetrack.at(t)
+        if t > 0 and float(cur[IDX["lift"]][0]) < -0.2:
+            self._step(t + dur * 0.25, dur * 0.75, step)
+            self.pose("crouch", t, dur * 0.45, ease="in2", lift=float(cur[IDX["lift"]][0]) * 0.6, hips=(34, 0, 0), spine=(26, 0, 0),
+                      head=(-20, 0, 0), knee_l=74, knee_r=74, leg_l=(66, 6), leg_r=(66, 6), foot_l=0, foot_r=0, arm_l=(34, 10), arm_r=(34, 10))
+            return self.pose("stand", t + dur * 0.45, dur * 0.55, ease="out2")
         return self.pose("stand", t, dur)
 
     def layer(self, fn, t0=0.0, t1=1e9):
@@ -664,29 +832,47 @@ class Person(Node):
         return self
 
     # ------------------------------------------------------------------ locomotion
-    def walk(self, to, t=0.0, dur=None, speed=1.15, run=False, turn=True, ease=None):
-        """Walk (or run=True) to a point or through a list of points. dur defaults to distance / speed (m/s);
-        it eases in and out. The gait is layered on top of the current pose, so walk from "stand". Sets .t_end."""
+    def walk(self, to, t=0.0, dur=None, speed=None, style="walk", run=False, turn=True, ease=None, avoid=True):
+        """Travel to a point (or through a list of points) on foot. Sets .t_end (arrival time).
+        style: stroll walk march carry sneak limp trudge drunk jog run sprint  (see GAITS). dur defaults to
+        distance / the style's speed; if you give a dur that implies a faster or slower pace, the stride adapts and
+        a walk that would have to slide turns into a jog / run by itself. The cycle is layered on the current pose
+        (walk from "stand"; walk from "carry" keeps the arms on the load). avoid=True routes around furniture."""
         pts = [to] if not isinstance(to[0], (tuple, list, np.ndarray)) else list(to)
         start = self.pos.at(t)
         pts = [start] + [v3(p, start[2]) for p in pts]
+        if avoid and self.parent is None:
+            pts = _route(pts, self.scene._obstacles(), 0.34 * self.height / 1.75, self.scene._blocks)
         path = Path(pts, smooth=len(pts) > 2)
         k = self.height / 1.75
-        if run:
-            speed = max(speed, 3.6)
+        if run and style == "walk":
+            style = "run"
+        if style not in GAITS:
+            raise ValueError(f"unknown walk style {style!r}: {' '.join(GAITS)}")
+        G = dict(GAITS[style])
+        v = (speed if speed is not None else G["v"]) * k
         if dur is None:
-            dur = max(path.length / (speed * k), 0.4)
+            dur = max(path.length / v, 0.4)
+        v = path.length / max(dur, 1e-3) / k                        # the pace actually asked for (1.75 m figure)
+        if True:                                                     # safeguard: never slide - pick the gait that fits the pace
+            if style in ("walk", "stroll", "march", "carry") and v > 2.2:
+                G = dict(GAITS["run" if v > 3.4 else "jog"])
+            elif style in ("jog", "run", "sprint") and v < 1.7:
+                G = dict(GAITS["walk"])
+        scale = max(0.6, min(1.35, (v / G["v"]) ** 0.5))             # faster -> longer steps, slower -> shorter
+        stride = G["stride"] * scale * k
+        amp = min(1.25, max(0.7, scale))
         ramp = min(0.22, 0.6 / max(dur, 1e-3))
 
-        def prog(u):                                   # trapezoid speed profile -> distance fraction
-            a = ramp
-            total = 1 - a
-            if u < a:
-                return (u * u / (2 * a)) / total
-            if u > 1 - a:
+        def prog(u):                                                 # trapezoid speed profile -> distance fraction
+            a_ = ramp
+            total = 1 - a_
+            if u < a_:
+                return (u * u / (2 * a_)) / total
+            if u > 1 - a_:
                 r = 1 - u
-                return 1 - (r * r / (2 * a)) / total
-            return (u - a / 2) / total
+                return 1 - (r * r / (2 * a_)) / total
+            return (u - a_ / 2) / total
         e = ease or prog
         self.pos.fn(lambda u, s0: path.at(u), t, dur, e)
         if turn:
@@ -697,9 +883,13 @@ class Person(Node):
                 kk = min(1.0, (u * dur) / 0.35)
                 return np.array([s0[0], s0[1], s0[2] + dy * kk * kk * (3 - 2 * kk)])
             self.rot.fn(yawf, t, dur, "linear")
-        stride = (2.5 if run else 1.45) * k
-        A = dict(leg=44, knee=95, arm=52, elb=82, lean=12, bob=0.045, twist=10, back=0.55) if run else \
-            dict(leg=27, knee=58, arm=24, elb=14, lean=3.5, bob=0.022, twist=6, back=0.8)
+        cycles = max(round(path.length / stride * 2) / 2, 0.5)       # whole steps, so both feet end planted
+        seed = self._seed
+        if G.get("weave"):                                           # drunk: drift off the line and back
+            side_amp = G["weave"]
+            self.pos.add(lambda tt: (lambda d, w: np.array([-d[1], d[0], 0.0]) * w)(
+                path.dir(min(max((tt - t) / dur, 0.0), 1.0)),
+                side_amp * noise1((tt - t) * 1.1, seed) * min(1.0, (tt - t) / 0.6, (t + dur - tt) / 0.6)), t, t + dur)
 
         def gait(tt, add):
             u = min(max((tt - t) / dur, 0.0), 1.0)
@@ -708,25 +898,242 @@ class Person(Node):
             env = env * env * (3 - 2 * env)
             if env <= 0:
                 return
-            ph = uu * path.length / stride * 2 * math.pi
-            for side, off in (("l", 0.0), ("r", math.pi)):
-                s, c = math.sin(ph + off), math.cos(ph + off)
-                swing = s if s > 0 else s * A["back"]
-                add("leg_" + side, (A["leg"] * swing * env, 0, 0))
-                add("knee_" + side, (A["knee"] * max(0.0, math.cos(ph + off + 0.45)) ** 1.4 + 6) * env)
-                add("foot_" + side, (12 * max(0.0, s) - 22 * max(0.0, -c) * (s < 0)) * env)
-                add("arm_" + side, (-A["arm"] * s * env, 0, 0))
-                add("elbow_" + side, (A["elb"] + 10 * max(0.0, -s)) * env)
-            add("lift", (A["bob"] * math.cos(2 * ph) - A["bob"]) * env)
-            add("hips", (A["lean"] * env, 2.5 * math.sin(ph) * env, A["twist"] * 0.5 * math.sin(ph) * env))
-            add("spine", (A["lean"] * 0.6 * env, -2.0 * math.sin(ph) * env, -A["twist"] * math.sin(ph) * env))
+            _gait_pose(G, uu * cycles, env, amp, add, tt, seed)
         self.layers.append((t, t + dur, gait))
         self._cache.clear()
         self.t_end = t + dur
         return self
 
-    def run(self, to, t=0.0, dur=None, speed=4.2, **kw):
-        return self.walk(to, t, dur, speed, run=True, **kw)
+    def run(self, to, t=0.0, dur=None, speed=None, style="run", **kw):
+        """Run to a point / through points (style: jog run sprint). Same options as walk()."""
+        return self.walk(to, t, dur, speed, style=style, **kw)
+
+    def pace(self, style="walk", t=0.0, dur=4.0):
+        """Walk / run on the spot (treadmill, or when something else moves the figure: escalator, parented vehicle,
+        a .follow() path). Same styles as walk()."""
+        G = dict(GAITS[style])
+        seed = self._seed
+        rate = G["v"] / G["stride"]
+
+        def gait(tt, add):
+            u = (tt - t) / dur
+            env = min(1.0, u / 0.12, (1 - u) / 0.12)
+            if env > 0:
+                _gait_pose(G, (tt - t) * rate, env * env * (3 - 2 * env), 1.0, add, tt, seed)
+        self.layers.append((t, t + dur, gait))
+        self._cache.clear()
+        return self
+
+    # ------------------------------------------------------------------ action templates
+    def act(self, name, t=0.0, dur=None, **kw):
+        """Play a ready-made action, then return to the pose the figure was in. Names (and options):
+        jump(height=0.45, dist=0) hop  pick_up(target=None, side="r")  throw(side="r")  punch(side="r")  kick
+        wave  clap  cheer  bow  shrug  look_around  check_watch  facepalm  point(target)  stumble  flinch
+        dance  celebrate  climb(height=2.5)  sit_down(seat=0.46)  stand_up  knock  drink  type  wait
+        Each has a natural default duration; pass dur to stretch it."""
+        fn = getattr(self, "_act_" + name, None)
+        if fn is None:
+            raise ValueError(f"unknown action {name!r}: " + " ".join(sorted(n[5:] for n in dir(self) if n.startswith("_act_"))))
+        self._cache.clear()
+        fn(t, dur, **kw)
+        self._cache.clear()
+        return self
+
+    def _seq(self, t, steps, back=0.35, restore=True):
+        """steps = [(dt, pose_name_or_None, joint_overrides, ease)] played one after another; returns end time."""
+        prev = np.array(self.posetrack.at(t), dtype=float)
+        cur = t
+        for dt, name, over, ez in steps:
+            if name is None and not over:
+                cur += dt                                            # hold
+                continue
+            v = pose_vec(name, **over) if name is not None else pose_vec(None, base=self.posetrack.at(cur), **over)
+            self.posetrack.to(v, cur, dt, ez or "inout")
+            cur += dt
+        if restore:
+            self.posetrack.to(prev, cur, back, "inout")
+            cur += back
+        self.t_end = cur
+        return cur
+
+    def _hop(self, t, up, height, dist=0.0):
+        """Ballistic root arc of `up` seconds (adds to wherever the figure is)."""
+        yaw = math.radians(float(self.rot.at(t)[2]))
+        fwd = np.array([-math.sin(yaw), math.cos(yaw), 0.0])
+
+        def f(tt):
+            u = min(max((tt - t) / up, 0.0), 1.0)
+            return np.array([0, 0, 4 * height * u * (1 - u)]) + fwd * dist * u
+        self.pos.add(f, t, t + up)
+        if dist:
+            self.pos.add(lambda tt: fwd * dist, t + up, 1e9)
+
+    def _act_jump(self, t, dur, height=0.45, dist=0.0):
+        d = (dur or 1.25)
+        up = max(0.35, 2 * math.sqrt(2 * height / 9.8)) * d / 1.25
+        self._seq(t, [(0.26 * d, "crouch", dict(lift=-0.26, arm_l=(-40, 12), arm_r=(-40, 12), elbow_l=20, elbow_r=20, head=(-6, 0, 0)), "out2"),
+                      (0.1 * d, "stand", dict(arm_l=(150, 14), arm_r=(150, 14), foot_l=-35, foot_r=-35, spine=(-6, 0, 0)), "in"),
+                      (up * 0.5, None, dict(leg_l=(34, 6), leg_r=(34, 6), knee_l=64, knee_r=64, arm_l=(120, 26), arm_r=(120, 26)), "out2"),
+                      (up * 0.5, "stand", dict(knee_l=12, knee_r=12, arm_l=(40, 24), arm_r=(40, 24), foot_l=-20, foot_r=-20), "in2"),
+                      (0.14 * d, "crouch", dict(lift=-0.2, arm_l=(30, 30), arm_r=(30, 30), head=(-4, 0, 0)), "out")], back=0.32 * d)
+        self._hop(t + 0.36 * d, up, height, dist)
+
+    def _act_hop(self, t, dur, height=0.16, dist=0.0):
+        self._act_jump(t, dur or 0.8, height, dist)
+
+    def _act_pick_up(self, t, dur, target=None, side="r"):
+        d = dur or 1.9
+        o = "l" if side == "r" else "r"
+        self._seq(t, [(0.36 * d, "examine", {"arm_" + side: (74, 6), "elbow_" + side: 14, "arm_" + o: (20, 14), "elbow_" + o: 40}, "inout"),
+                      (0.16 * d, None, {}, None),
+                      (0.3 * d, "stand", {"arm_" + side: (30, 8), "elbow_" + side: 70}, "inout")], back=0.18 * d)
+        if target is not None:
+            self.reach(side, target, t + 0.2 * d, 0.2 * d, hold=0.12 * d, blend_out=0.2 * d)
+
+    def _act_throw(self, t, dur, side="r"):
+        d = dur or 1.15
+        sg = 1 if side == "r" else -1
+        o = "l" if side == "r" else "r"
+        self._seq(t, [(0.34 * d, None, {"arm_" + side: (-50, 46, 0), "elbow_" + side: 96, "spine": (-8, 0, -26 * sg), "hips": (0, 0, -12 * sg),
+                                         "arm_" + o: (60, 20), "elbow_" + o: 30, "leg_" + o: (22, 4), "knee_" + o: 14}, "out2"),
+                      (0.12 * d, None, {"arm_" + side: (128, 10, 0), "elbow_" + side: 12, "spine": (22, 0, 24 * sg), "hips": (8, 0, 14 * sg),
+                                         "arm_" + o: (-24, 16), "elbow_" + o: 40}, "in"),
+                      (0.2 * d, None, {"arm_" + side: (52, -8, 0), "elbow_" + side: 28, "spine": (30, 0, 30 * sg)}, "out")], back=0.34 * d)
+
+    def _act_punch(self, t, dur, side="r"):
+        d = dur or 0.75
+        self._seq(t, [(0.2 * d, "guard", {}, "out2"), (0.14 * d, "punch" if side == "r" else "punch_l", {}, "in"),
+                      (0.14 * d, None, {}, None), (0.24 * d, "guard", {}, "inout")], back=0.28 * d)
+
+    def _act_kick(self, t, dur):
+        d = dur or 1.0
+        self._seq(t, [(0.28 * d, "windup", {}, "out2"), (0.13 * d, "strike", {}, "in"), (0.14 * d, None, {}, None)], back=0.45 * d)
+
+    def _act_wave(self, t, dur):
+        d = dur or 2.2
+        self._seq(t, [(0.2 * d, "wave", {}, "back"), (0.62 * d, None, {}, None)], back=0.18 * d)
+        self.gesture("wave", t + 0.14 * d, 0.7 * d)
+
+    def _act_clap(self, t, dur):
+        d = dur or 2.0
+        self._seq(t, [(0.2 * d, None, dict(hand_l=(-0.07, 0.25, 0.3), hand_r=(0.07, 0.25, 0.3)), "out2"), (0.62 * d, None, {}, None)], back=0.18 * d)
+        t0, t1 = t + 0.18 * d, t + 0.84 * d
+
+        def f(tt, add):
+            w = 0.5 + 0.5 * math.cos((tt - t0) * 2 * math.pi * 3.2)
+            add("hand_l", (0.062 * w, 0, 0)); add("hand_r", (-0.062 * w, 0, 0))
+        self.layers.append((t0, t1, f))
+
+    def _act_cheer(self, t, dur):
+        d = dur or 2.4
+        self._seq(t, [(0.16 * d, "cheer", {}, "back"), (0.68 * d, None, {}, None)], back=0.16 * d)
+        t0 = t + 0.12 * d
+        self.pos.add(lambda tt: np.array([0, 0, 0.11 * abs(math.sin((tt - t0) * math.pi * 2.6))]) * min(1.0, (t + 0.84 * d - tt) / 0.2), t0, t + 0.84 * d)
+        self.layers.append((t0, t + 0.84 * d, lambda tt, add: (add("arm_l", (8 * math.sin(tt * 9), 6 * math.sin(tt * 7), 0)),
+                                                              add("arm_r", (8 * math.sin(tt * 9 + 1), 6 * math.sin(tt * 7 + 2), 0)))))
+
+    def _act_celebrate(self, t, dur):
+        d = dur or 2.6
+        self._act_jump(t, 0.45 * d, 0.3)
+        self._act_cheer(t + 0.4 * d, 0.6 * d)
+
+    def _act_bow(self, t, dur):
+        d = dur or 1.8
+        self._seq(t, [(0.34 * d, None, dict(hips=(34, 0, 0), spine=(26, 0, 0), head=(18, 0, 0), arm_l=(10, 4), arm_r=(10, 4)), "inout"),
+                      (0.3 * d, None, {}, None)], back=0.36 * d)
+
+    def _act_shrug(self, t, dur):
+        d = dur or 1.3
+        self._seq(t, [(0.3 * d, "shrug", {}, "out2"), (0.3 * d, None, {}, None)], back=0.4 * d)
+
+    def _act_look_around(self, t, dur):
+        d = dur or 3.0
+        self._seq(t, [(0.2 * d, None, dict(head=(0, 0, 52), spine=(0, 0, 12)), "inout"), (0.14 * d, None, {}, None),
+                      (0.3 * d, None, dict(head=(4, 0, -56), spine=(0, 0, -14)), "inout"), (0.14 * d, None, {}, None)], back=0.22 * d)
+
+    def _act_check_watch(self, t, dur):
+        d = dur or 2.0
+        self._seq(t, [(0.26 * d, None, dict(hand_l=(-0.02, 0.2, 0.3), head=(24, 0, 12)), "out2"), (0.46 * d, None, {}, None)], back=0.28 * d)
+
+    def _act_facepalm(self, t, dur):
+        d = dur or 2.0
+        self._seq(t, [(0.26 * d, None, dict(hand_r=(0.02, 0.13, 0.57), head=(20, 0, 0), spine=(8, 0, 0)), "out2"), (0.46 * d, None, {}, None)], back=0.28 * d)
+        self.gesture("shake", t + 0.3 * d, 0.36 * d, amount=0.4)
+
+    def _act_point(self, t, dur, target=None):
+        d = dur or 1.8
+        self._seq(t, [(0.24 * d, "point", {}, "out2"), (0.5 * d, None, {}, None)], back=0.26 * d)
+        if target is not None:
+            self.reach("r", target, t, 0.24 * d, hold=0.5 * d, blend_out=0.26 * d)
+            self.look_at(target, t, 0.24 * d, hold=0.5 * d)
+
+    def _act_stumble(self, t, dur):
+        d = dur or 1.3
+        self._seq(t, [(0.2 * d, None, dict(hips=(26, 0, 0), spine=(30, 0, 8), head=(-18, 0, 0), arm_l=(70, 40), arm_r=(50, 50), elbow_l=30, elbow_r=20,
+                                           leg_l=(46, 6), knee_l=20, leg_r=(-24, 6), knee_r=50, lift=-0.08), "out"),
+                      (0.26 * d, None, dict(hips=(14, 0, 0), spine=(16, 0, -6), leg_r=(40, 6), knee_r=30, leg_l=(-10, 6), knee_l=24, lift=-0.05), "inout")],
+                  back=0.54 * d)
+
+    def _act_flinch(self, t, dur):
+        d = dur or 0.9
+        self._seq(t, [(0.16 * d, "recoil", dict(arm_l=(60, 30), arm_r=(70, 24), elbow_l=110, elbow_r=110, lift=-0.06), "out"),
+                      (0.3 * d, None, {}, None)], back=0.54 * d)
+
+    def _act_dance(self, t, dur):
+        d = dur or 4.0
+        self._seq(t, [(0.3, "dance", {}, "out2"), (d - 0.7, None, {}, None)], back=0.4)
+        t0, t1, bpm = t + 0.2, t + d - 0.3, 2.0
+
+        def f(tt, add):
+            w = (tt - t0) * 2 * math.pi * bpm
+            add("hips", (0, 9 * math.sin(w), 8 * math.sin(w * 0.5)))
+            add("spine", (0, -8 * math.sin(w), -10 * math.sin(w * 0.5)))
+            add("lift", -0.03 * (0.5 + 0.5 * math.cos(2 * w)))
+            add("arm_l", (18 * math.sin(w * 0.5), 14 * math.cos(w), 0)); add("arm_r", (18 * math.cos(w * 0.5), 14 * math.sin(w), 0))
+            add("elbow_l", 20 * math.sin(w)); add("elbow_r", 20 * math.cos(w))
+            add("knee_l", 14 * max(0.0, math.sin(w))); add("knee_r", 14 * max(0.0, -math.sin(w)))
+            add("head", (4 * math.sin(2 * w), 0, 6 * math.sin(w * 0.5)))
+        self.layers.append((t0, t1, f))
+
+    def _act_climb(self, t, dur, height=2.5):
+        d = dur or max(2.0, height * 1.3)
+        self._seq(t, [(0.3, "reach_up", dict(spine=(6, 0, 0), head=(-24, 0, 0), lift=0.0), "inout"), (d - 0.6, None, {}, None)], back=0.3)
+        self.pos.add(lambda tt: np.array([0, 0, height * min(max((tt - t - 0.25) / (d - 0.5), 0.0), 1.0)]), t, 1e9)
+        n = max(int(height / 0.3), 2)
+
+        def f(tt, add):
+            w = min(max((tt - t - 0.25) / (d - 0.5), 0.0), 1.0) * n * math.pi
+            s_ = math.sin(w)
+            add("arm_l", (-34 * max(0.0, s_), 0, 0)); add("arm_r", (-34 * max(0.0, -s_), 0, 0))
+            add("elbow_l", 60 * max(0.0, s_)); add("elbow_r", 60 * max(0.0, -s_))
+            add("leg_l", (62 * max(0.0, -s_), 4, 0)); add("knee_l", 84 * max(0.0, -s_))
+            add("leg_r", (62 * max(0.0, s_), 4, 0)); add("knee_r", 84 * max(0.0, s_))
+        self.layers.append((t + 0.25, t + d - 0.25, f))
+
+    def _act_sit_down(self, t, dur, seat=0.46, pose="sit"):
+        self.sit(t, dur or 1.1, seat, pose)
+
+    def _act_stand_up(self, t, dur):
+        self.stand(t, dur or 1.1)
+
+    def _act_knock(self, t, dur):
+        d = dur or 1.5
+        self._seq(t, [(0.25 * d, None, dict(arm_r=(74, 6), elbow_r=96), "out2"), (0.5 * d, None, {}, None)], back=0.25 * d)
+        t0 = t + 0.25 * d
+        self.layers.append((t0, t + 0.75 * d, lambda tt, add: add("elbow_r", -26 * max(0.0, math.sin((tt - t0) * 2 * math.pi * 3.0)))))
+
+    def _act_drink(self, t, dur):
+        d = dur or 2.2
+        self._seq(t, [(0.3 * d, "drink", {}, "inout"), (0.36 * d, None, dict(head=(-22, 0, 0)), "inout")], back=0.34 * d)
+
+    def _act_type(self, t, dur):
+        self.gesture("type", t, dur or 3.0)
+
+    def _act_wait(self, t, dur):
+        d = dur or 4.0
+        self._seq(t, [(0.6, "relaxed", {}, "inout"), (d * 0.4, None, {}, None), (0.8, "relaxed", dict(hips=(0, -4, 0), spine=(2, 5, 0)), "inout"),
+                      (max(d * 0.6 - 2.2, 0.1), None, {}, None)], back=0.8)
+        self.gesture("sway", t + 0.5, max(d - 1.0, 0.5), amount=0.35)
 
     def turn(self, toward, t=0.0, dur=0.5):
         """Face a world point (x, y), a Node, or a heading in degrees."""

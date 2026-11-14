@@ -171,16 +171,19 @@ class KitMixin:
     def plate(self, at=(0, 0, 0), r=0.13, **kw):
         return self.add(Mesh().lathe([(r * 0.6, 0), (r, 0.018)], seg=28), at=v3(at), name=kw.pop("name", "plate"), **kw)
 
-    def candle(self, at=(0, 0, 0), h=0.16, power=14.0, color="#ffb45e", t=0.0, **kw):
-        """Candle with a flickering flame and warm light. Returns the group; .flame, .light."""
+    def candle(self, at=(0, 0, 0), h=0.16, power=14.0, color="#ffb45e", t=0.0, shadow=False, **kw):
+        """Candle with a gently breathing flame and warm light. Returns the group; .flame, .light.
+        shadow=True makes its light cast shadows (costs render time; use it on the hero candle only)."""
         g = self.group("candle", at=v3(at))
         self.add(Mesh().cyl(0.014, h, seg=10).cyl(0.04, 0.012, seg=14), parent=g, name="candle_body", **kw)
         fl = self.add(Mesh().lathe([(0.0, 0), (0.011, 0.012), (0.008, 0.03), (0.0, 0.052)], seg=8), at=(0, 0, h + 0.004),
                       color=color, mat="flat", parent=g, name="flame", glow=2.2, ink=False)
-        fl.flicker(t, 1e6, 1.6, 2.6, 9.0)
-        fl.scl.add(lambda tt: np.array([0, 0, 0.18 * noise1(tt * 7.0, 3.1)]), 0, 1e9)
-        lt = self.light(at=(0, 0, h + 0.05), color=color, power=power, radius=0.03, parent=g, name="candle_light")
-        lt.flicker(t, 1e6, 0.75, 1.0, 8.0)
+        from .track import flick
+        sd = (len(self._nodes) * 0.37) % 10
+        fl.flicker(t, 1e6, 0.85, 1.0, 0.9)
+        fl.scl.add(lambda tt: np.array([0, 0, 0.14 * flick(tt, 0.8, sd)]), 0, 1e9)
+        lt = self.light(at=(0, 0, h + 0.05), color=color, power=power, radius=0.03, parent=g, name="candle_light", shadow=shadow)
+        lt.flicker(t, 1e6, 0.88, 1.0, 0.7)
         g.parts.update(flame=fl, light=lt)
         g.flame, g.light = fl, lt
         return g
@@ -529,7 +532,7 @@ class KitMixin:
             m.tube([(0, hy - hl * 0.25, dk + hh + L * 0.06), (0, L * 0.2, dk + L * 0.16)], r=L * 0.005, seg=6)
             m.sphere(L * 0.012, at=(0, hy - hl * 0.25, dk + hh + L * 0.21), paint="#ffe2b0", emit=1.0, seg=8)
             m.box((B * 0.22, L * 0.07, L * 0.05), at=(0, L * 0.13, dk), bottom=True)                                # winch
-            m.cyl(L * 0.03, B * 0.3, at=(0, L * 0.27, dk + L * 0.035), rot=(0, 90, 0), seg=10, centered=True)        # net drum
+
         elif kind == "ship":
             m.box((B * 0.7, L * 0.16, L * 0.16), at=(0, -L * 0.34, dk), bottom=True).box((B * 0.5, L * 0.1, L * 0.06), at=(0, -L * 0.34, dk + L * 0.16), bottom=True)
             m.cyl(L * 0.022, L * 0.09, at=(0, -L * 0.38, dk + L * 0.2), seg=12)
@@ -644,6 +647,7 @@ class KitMixin:
         m = Mesh().terrain(size, res, height)
         n = self.add(m, at=v3(at), name=kw.pop("name", "terrain"), ink=kw.pop("ink", False), **kw)
         base = v3(at)
+        n.solid = False
         self.ground_z = lambda x, y: base[2] + (height(x - base[0], y - base[1]) if height else 0.0)
         return n
 
@@ -669,7 +673,9 @@ class KitMixin:
             m.sphere(size * rng.uniform(0.18, 0.34), at=(size * rng.uniform(-0.5, 0.5), size * rng.uniform(-0.25, 0.25), size * rng.uniform(-0.04, 0.1)),
                      scale=(1.25, 1, 0.72), seg=14)
         kw.setdefault("shadow", False)
-        return self.add(m, at=v3(at), name=kw.pop("name", "cloud"), ink=kw.pop("ink", False), **kw)
+        n = self.add(m, at=v3(at), name=kw.pop("name", "cloud"), ink=kw.pop("ink", False), **kw)
+        n.solid = False
+        return n
 
     def clouds(self, n=12, area=((-80, -80), (80, 80)), z=(25, 45), size=(8, 18), drift=(1.5, 0, 0), seed=5, **kw):
         """Scattered cloud layer drifting slowly. Returns the list of nodes."""
