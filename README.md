@@ -1,0 +1,172 @@
+<p align="center">
+  <img src="docs/media/hero.jpg" alt="Frames rendered with umbra" width="100%">
+</p>
+
+# umbra
+
+**2.5D silhouette-and-diorama animation, written in Python, built for AI agents.**
+Describe a scene in ~60 lines; umbra stages it in Blender, lights it, animates it and renders a
+1080p film on your GPU. No Blender skills, no keyframing, no node graphs.
+
+```python
+from umbra import *
+
+class Hello(Scene):
+    duration = 8
+
+    def build(s):
+        s.table(at=(0, 0)); s.chair(at=(0, -0.75)); s.lamp(at=(0, 0), kind="pendant")
+        a = s.person(at=(0, -0.75), color=WHITE).sit(pose="sit_table")
+        b = s.person(at=(3.5, 2.5), color=RED, build="woman", hair="long")
+        b.walk((0.9, 0.5), t=1, dur=3).pose("wave", t=4.2)
+        a.look_at(b.anchor("head"), t=2.5)
+        s.cam.set(pos=(4.5, -5.5, 3.2), look=(0.3, 0, 1), lens=45)
+        s.cam.orbit(25, t=0, dur=8)
+        s.label(b.anchor("above"), "Hello", t=4.4, out=7.4)
+```
+
+```bash
+python -m umbra render scenes/00_hello.py      # -> out/00_hello.mp4
+```
+
+<p align="center"><img src="docs/media/00_hello.gif" alt="The scene above, rendered" width="640"></p>
+
+## Gallery
+
+Ten 20-second films, each one a single Python file in [`scenes/`](scenes). Scenes 04–10 were written by
+fresh AI agents working from [`AGENTS.md`](AGENTS.md) alone, in at most six contact-sheet iterations each.
+
+<table>
+<tr>
+<td width="50%"><a href="scenes/01_cabin_fight.py"><img src="docs/media/01_cabin_fight.gif" width="100%"></a><br><sub><b>01 · Cabin fight</b> — <code>blueprint</code> look, crowd, fight choreography, a dive through cloud</sub></td>
+<td width="50%"><a href="scenes/02_corcovado.py"><img src="docs/media/02_corcovado.gif" width="100%"></a><br><sub><b>02 · Corcovado</b> — <code>dusk</code> look, terrain, chase cam, explosions, falling wreck</sub></td>
+</tr>
+<tr>
+<td><a href="scenes/03_dinner_date.py"><img src="docs/media/03_dinner_date.gif" width="100%"></a><br><sub><b>03 · Dinner date</b> — candle light, hand IK, shallow focus</sub></td>
+<td><a href="scenes/04_crime_scene.py"><img src="docs/media/04_crime_scene.gif" width="100%"></a><br><sub><b>04 · Crime scene</b> — <code>noir</code> look, lantern beam, callout labels</sub></td>
+</tr>
+<tr>
+<td><a href="scenes/05_rocket_launch.py"><img src="docs/media/05_rocket_launch.gif" width="100%"></a><br><sub><b>05 · Rocket launch</b> — countdown, fire and smoke riding a moving anchor</sub></td>
+<td><a href="scenes/06_night_chase.py"><img src="docs/media/06_night_chase.gif" width="100%"></a><br><sub><b>06 · Night chase</b> — procedural city, headlights, route trails</sub></td>
+</tr>
+<tr>
+<td><a href="scenes/07_warehouse.py"><img src="docs/media/07_warehouse.gif" width="100%"></a><br><sub><b>07 · Warehouse</b> — <code>clay</code> look, tilt-shift miniature</sub></td>
+<td><a href="scenes/08_storm.py"><img src="docs/media/08_storm.gif" width="100%"></a><br><sub><b>08 · Storm</b> — water, rain, lightning, a sweeping beam</sub></td>
+</tr>
+<tr>
+<td><a href="scenes/09_penalty.py"><img src="docs/media/09_penalty.gif" width="100%"></a><br><sub><b>09 · Penalty</b> — crowd, ball trajectory, broadcast-style graphics</sub></td>
+<td><a href="scenes/10_orbit.py"><img src="docs/media/10_orbit.gif" width="100%"></a><br><sub><b>10 · Orbit</b> — no people: pure motion graphics in space</sub></td>
+</tr>
+</table>
+
+## Install
+
+| need | version | notes |
+|---|---|---|
+| [Blender](https://www.blender.org/download/) | 4.5 LTS or newer (developed on 5.2) | found automatically, or set `UMBRA_BLENDER=/path/to/blender` |
+| ffmpeg | any recent | on `PATH` (or `pip install imageio-ffmpeg`) |
+| Python | 3.9+ | only runs the CLI; no packages to install |
+| GPU | anything Blender's EEVEE runs on | NVIDIA / AMD / Intel / Apple; no CUDA or OptiX setup |
+
+```bash
+git clone https://github.com/MusicMaster4/umbra-25d && cd umbra-25d
+python -m umbra doctor                      # checks Blender + ffmpeg
+python -m umbra sheet scenes/00_hello.py    # a contact sheet in ~10 s
+```
+
+## For AI agents
+
+Point your agent at the repo and say what film you want. [`AGENTS.md`](AGENTS.md) (also loaded through
+`CLAUDE.md`) is a single page with the whole API, the working loop and the art-direction rules; an agent
+does not need to read the source.
+
+> Read AGENTS.md, then write `scenes/lighthouse.py`: a 20-second film of a fishing boat in a storm
+> near a lighthouse. Iterate with `python -m umbra sheet` until it looks right, then render it.
+
+The loop is built to be cheap in tokens:
+
+| step | command | cost |
+|---|---|---|
+| see the whole film | `python -m umbra sheet scene.py` | one image (12 timestamped frames), ~10 s |
+| check a moment | `python -m umbra sheet scene.py -t 4.2 -t 4.6 -t 5.0` | one image |
+| check detail | `python -m umbra still scene.py -t 6.5` | one 1080p frame |
+| deliver | `python -m umbra render scene.py` | mp4, ~8–12 min per 20 s at 1080p on an RTX 3070 |
+
+<p align="center"><img src="docs/media/sheet.jpg" alt="A contact sheet" width="100%"><br>
+<sub>What an agent looks at: one contact sheet of the whole timeline.</sub></p>
+
+## What you get
+
+**Looks** — one word sets the background, light rig, materials, lens and grade. Override any field with
+`NOIR.but(...)`. The default stage is `#151515`.
+
+<p align="center"><img src="docs/media/looks.jpg" alt="noir, clay, blueprint, dusk, paper" width="100%"></p>
+
+**People** — flat, glowing silhouettes that pose, walk, sit, fight, reach and look at things.
+56 library poses, procedural gait, two-bone hand IK, head tracking, gestures, hats, hair, outfits.
+
+<p align="center"><img src="docs/media/poses.jpg" alt="Pose library" width="100%"></p>
+
+**A kit** — furniture, rooms with cut-away walls, buildings and whole cities, cars, an airliner and its
+cabin, helicopter, boats, rocket, train, trees, terrain, water, clouds — plus a small mesh builder
+(`box`, `cyl`, `lathe`, `extrude`, `loft`, `tube`…) for everything else.
+
+**Camera** — `set`, `to`, `cut`, `orbit`, `push`, `track`, `follow`, `shake`, `handheld`; depth of field,
+motion blur, bloom, vignette and film grain are on by default.
+
+**Words** — type that behaves: callout labels that follow a 3D point, corner stamps, captions,
+counters and clocks, with entrance presets (`rise`, `type`, `letters`, `wipe`…). Four bundled open-source
+typefaces. The defaults are deliberately small and sparse.
+
+**FX** — fire, smoke, explosions, debris, sparks, dust, rain, snow, lightning, splashes; trails, arrows,
+rings, zones and light beams. Particles are analytic, so any frame can be rendered on its own.
+
+**Safeguards** — the usual 3D mistakes are handled before you can make them: meshes are cleaned and
+re-wound outward on build (no inverted normals), coplanar surfaces are layered instead of z-fighting, the
+camera's clip planes are fitted to the scene every frame (no depth shimmer on far detail), teleports and
+forgotten cuts never smear through motion blur, labels stay inside the frame, and a preflight prints
+warnings for things like a camera under the floor. [`tests/safeguards.py`](tests/safeguards.py) stages all of
+these on purpose.
+
+## How it works
+
+```
+scene.py ──► umbra (Python, inside Blender) ──► EEVEE on the GPU ──► PNG frames ──► ffmpeg ──► mp4
+   │              │
+   │              ├─ every value is a Track: set / to / fn + additive layers (shake, flicker, gait…)
+   │              ├─ tracks are sampled per frame and baked to f-curves; particles and IK are closed-form
+   │              └─ a second transparent "overlay" scene carries all 2D text and is composited on top
+   └─ declarative: absolute times, any order, everything chainable
+```
+
+- Rendering is real-time rasterisation (EEVEE), not path tracing: about 1 s per 1080p frame with soft shadows,
+  screen-space GI, depth of field and motion blur. `render -j N` runs N Blender processes side by side.
+- `python -m umbra blend scene.py` exports an ordinary `.blend` if you want to keep working by hand.
+- Outlines in the `blueprint` look are real geometry pushed out in the vertex shader, so they stay a
+  constant width in pixels at any distance or zoom.
+
+## CLI
+
+```
+python -m umbra sheet  scene.py [-n 12] [-t T ...] [--range T0 T1] [--cols 4] [--scale 0.25]
+python -m umbra still  scene.py -t T [-t T ...] [-q draft|preview|final|ultra]
+python -m umbra render scene.py [-q final] [-j 2] [--range T0 T1] [--resume] [--nvenc]
+python -m umbra blend  scene.py
+python -m umbra api    [word]          # method signatures + docstrings, e.g. `api trail` (also in docs/API.md)
+python -m umbra doctor
+```
+
+## Layout
+
+```
+umbra/        the framework (scene, camera, people, kit, fx, overlay, looks, materials, CLI)
+scenes/       example films — start from 00_hello.py
+tests/        a deliberately sloppy scene that exercises the safeguards
+AGENTS.md     the one-page guide for agents (and humans)
+docs/API.md   every public method with its signature (generated by `python -m umbra api`)
+```
+
+## Licence
+
+MIT. Bundled fonts (Barlow, Barlow Condensed, IBM Plex Mono, DM Serif Display) are under the SIL Open Font
+License; see `umbra/fonts`.
