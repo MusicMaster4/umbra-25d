@@ -1,7 +1,7 @@
 ## Scene - objects, people, lights, strokes
 
 - `build()`
-- `add(mesh, at=None, rot=None, scale=None, color=None, mat=None, name=None, parent=None, shadow=None, glow=None, ink=None, alpha=None)`  
+- `add(mesh, at=None, rot=None, scale=None, color=None, mat=None, name=None, parent=None, shadow=None, glow=None, ink=None, alpha=None, solid=None)`  
   Add a Mesh builder (or bpy mesh) as one object. Returns a Node. mat: clay (default, lit) | satin | gloss | metal | glass | flat (unlit, glows) | fill (unlit) | water.
 - `group(*args, at=None, rot=None, parent=None, name='group')`  
   Empty parent to move/rotate/fade several nodes together: s.group(at=(x, y, z)) or s.group("name", at=...). Children given `parent=group` use coordinates relative to it - handy as a pivot / hinge.
@@ -55,7 +55,8 @@
 - `barrel(at=(0, 0), **kw)`
 - `plant(at=(0, 0), h=1.1, seed=0, **kw)`
 - `bottle(at=(0, 0, 0), **kw)`
-- `glass(at=(0, 0, 0), wine=True, **kw)`
+- `glass(at=(0, 0, 0), wine=True, drink='#7a1626', **kw)`  
+  Stemmed wine glass (wine=True) or a tumbler. Drawn as a small solid, glossy object so it reads at any size; `drink` colours the liquid surface (None = empty).
 - `plate(at=(0, 0, 0), r=0.13, **kw)`
 - `candle(at=(0, 0, 0), h=0.16, power=14.0, color='#ffb45e', t=0.0, shadow=False, **kw)`  
   Candle with a gently breathing flame and warm light. Returns the group; .flame, .light. shadow=True makes its light cast shadows (costs render time; use it on the hero candle only).
@@ -79,7 +80,7 @@
   sedan | van | truck | police | taxi. lights=True adds real headlight beams. Front is +Y.
 - `airliner(at=(0, 0, 0), rot=0, scale=1.0, **kw)`  
   Twin-engine passenger jet, nose toward +Y, ~38 m long. Origin at the centre of the fuselage.
-- `cabin(rows=6, at=(0, 0), layout=(3, 3), pitch=0.86, walls='left', rot=0, **kw)`  
+- `cabin(rows=6, at=(0, 0), layout=(3, 3), pitch=0.86, walls='left', rot=0, aisle=0.62, **kw)`  
   Airliner cabin interior: seat rows facing +Y, aisle down the middle, floor, optional side wall(s) with windows and overhead bins. walls: 'left', 'right', 'both', ''. Returns a Node with .seat(row, col) -> world (x, y) for s.person(...).sit(seat=cabin.seat_h); col 0 is the far-left seat.
 - `helicopter(at=(0, 0, 0), rot=0, rotor_rate=1500.0, **kw)`  
   Light helicopter, nose +Y, origin at the skids. Rotors already spin. Returns group (.body, .rotor, .tail_rotor).
@@ -205,6 +206,8 @@
 - `scale(to, t=0.0, dur=0.6, ease='inout')`
 - `follow(points, t=0.0, dur=3.0, ease='inout', orient=True, bank=0.0, smooth=True, pitch=True, forward='y')`  
   Travel along points [(x, y[, z]), ...]; orient=True turns the node along the path (forward="y" for things that face +Y, forward="z" for things that stand upright like a rocket), bank>0 rolls into turns. `ease` may also be a function u -> u for a custom speed profile. Sets .path (use .path.at(u)).
+- `allow(*nodes)`  
+  Tell the clipping check that overlapping these nodes is intended (a rocket in its launch ring, a drawer in a desk). For "nothing collides with this at all" set node.solid = False instead.
 - `drive(pos=None, rot=None, scale=None)`  
   Drive the transform with functions of time: node.drive(pos=lambda t: (x, y, z), rot=lambda t: (p, r, yaw)). Use it for anything the presets don't cover (orbits, physics you computed, synced mechanisms).
 - `shake(amp=0.05, t=0.0, dur=0.6, freq=18.0, decay=True)`  
@@ -259,7 +262,7 @@
 
 - `pose(spec=None, t=0.0, dur=0.5, ease='inout', mirror=False, **over)`  
   Blend to a library pose (name), a dict of joints, and/or joint overrides as kwargs. Keyword-only joints tweak the pose the figure is in at that moment.
-- `sit(t=0.0, dur=1.0, seat=0.46, pose='sit', step=0.0, **over)`  
+- `sit(t=0.0, dur=1.0, seat=0.46, pose='sit', step=0.0, table=None, **over)`  
   Sit on something whose top is `seat` metres high. Already seated at the start: put the figure AT the seat (same heading as the chair). Sitting down on camera: stand the figure ~0.35 m in front of the seat and pass step=0.35 - it hinges forward, backs onto the seat and settles (standing inside a chair first would clip).
 - `stand(t=0.0, dur=1.0, step=0.3)`  
   Stand up (or return to a neutral standing pose). From a seat it leans forward, rises, and ends `step` metres in front of the seat so the legs are clear of it.
@@ -288,8 +291,10 @@
   Recoil from a blow: head/torso snap back and recover. direction +1 = hit from the front.
 - `collapse(t=0.0, dur=1.1, pose='sprawl', mirror=False)`  
   Knees give way, then the body drops to the floor.
-- `hold(node, side='r', at=(0, 0.03, -0.09), rot=(0, 0, 0))`  
-  Attach a prop Node to a hand so it follows it.
+- `hold(node, side='r', at=(0, 0.03, -0.09), rot=(0, 0, 0), upright=False, drop=0.0)`  
+  Attach a prop Node to a hand so it follows it. `at` = where on the hand (palm centre by default). upright=True keeps the prop level whatever the arm does (glasses, cups, trays, lanterns, bottles); drop = how far below the grip the prop's own origin hangs (a glass held by its bowl: ~0.1).
+- `allow(*nodes)`  
+  Tell the clipping check that touching / overlapping these props is intended (a seat belt, a box being carried, the car this person sits in). Returns self.
 - `wear(mesh, part='head', at=(0, 0, 0), rot=(0, 0, 0), color=None, mat='flat', **kw)`  
   Attach an accessory mesh to a body part (keeps its own colour): hats, headphones, badge, bag...
 - `solve(t)`

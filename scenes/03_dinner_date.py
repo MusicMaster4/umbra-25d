@@ -24,7 +24,7 @@ class DinnerDate(Scene):
 
         def diner(x, y, side, color, **kw):
             p = s.person(at=(x + side * 0.66, y), heading=side * 90, color=color, **kw)
-            return p.sit(seat=0.46, pose="sit_table", hand_l=(-0.16, 0.33, 0.1), hand_r=(0.16, 0.33, 0.1))
+            return p.sit(seat=0.46, table=0.75)                     # hands rest flat on the table top
 
         # background tables and guests (dim, so the couple owns the frame)
         for i, (x, y) in enumerate([(-3.0, 1.7), (0.3, 2.3), (-3.3, -1.1), (3.3, 1.5)]):
@@ -47,7 +47,7 @@ class DinnerDate(Scene):
         # the waiter brings the wine
         waiter = s.person(at=(3.2, 4.4), color="#858585", heading=180, light=8)
         bottle = s.bottle(color="#2e3a2c")
-        waiter.hold(bottle, "r", at=(0, 0.02, -0.2))
+        waiter.hold(bottle, "r", upright=True, drop=0.12)
         waiter.pose(arm_r=(38, 6, 0), elbow_r=78, arm_l=(-12, 4), elbow_l=95)
         waiter.walk([(3.1, 2.6), (1.5, 0.75), (0.25, 0.35)], t=1.2, dur=4.0).turn((0, -0.4), t=5.2, dur=0.4)
         for t0, g in ((5.8, g_her), (7.2, g_him)):
@@ -65,8 +65,8 @@ class DinnerDate(Scene):
         him.pose(t=11.6, dur=0.9, spine=(16, 0, 0)); her.pose(t=12.3, dur=0.8, spine=(14, 0, 0))
         for p, g, side in ((him, g_him, "r"), (her, g_her, "l")):
             p.reach("l", g.anchor((0, 0, 0.1)), t=14.3, dur=0.6, hold=0.15, blend_out=0.5)
-        hold_him = s.glass(mat="gloss", color="#e6dcc8"); him.hold(hold_him, "l", at=(0, 0.03, -0.17)); hold_him.show(15.0)
-        hold_her = s.glass(mat="gloss", color="#e6dcc8"); her.hold(hold_her, "l", at=(0, 0.03, -0.17)); hold_her.show(15.0)
+        hold_him = s.glass(); him.hold(hold_him, "l", upright=True, drop=0.1); hold_him.show(15.0)
+        hold_her = s.glass(); her.hold(hold_her, "l", upright=True, drop=0.1); hold_her.show(15.0)
         g_him.hide(15.0); g_her.hide(15.0)
         him.pose(t=15.0, dur=0.7, spine=(14, 0, 0), arm_l=(92, 4, 0), elbow_l=26, hand_l=None)
         her.pose(t=15.0, dur=0.7, spine=(14, 0, 0), arm_l=(92, 4, 0), elbow_l=26, hand_l=None)

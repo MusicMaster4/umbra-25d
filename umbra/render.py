@@ -79,7 +79,7 @@ def run(a):
     elif mode == "sheet":
         times = a["times"]
         frames = [int(round(t * fps)) + 1 for t in times]
-        q = dict(scale=a.get("scale", 0.25), samples=a.get("samples", 12), motion_blur=False, rt=True, fps_div=1)
+        q = dict(scale=a.get("scale", 0.25), samples=a.get("samples", 12), motion_blur=False, rt=True, fps_div=1, flags=True)
         s = _build(cls, q, frames=sorted(set(frames)))
         _png(s.bscene, 5)
         r = s.bscene.render
@@ -140,6 +140,9 @@ def run(a):
             _render_frame(s, f, p)
             print(f"UMBRA_FRAME {f} {i + 1}/{len(todo)} {time.time() - t0:.1f}")
             sys.stdout.flush()
+    elif mode == "lint":
+        _build(cls, dict(scale=0.25, samples=8, motion_blur=False, rt=False, fps_div=1), frames=[1, 2])
+        print("UMBRA_OUT lint")
     elif mode == "blend":
         s = _build(cls, a["quality"])
         bpy.ops.wm.save_as_mainfile(filepath=os.path.abspath(a["out"]))

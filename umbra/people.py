@@ -31,7 +31,7 @@ HEAD_C = 0.172          # neck base -> head centre
 
 _LAYOUT = [("hips", 3), ("lift", 1), ("spine", 3), ("head", 3), ("arm_l", 3), ("arm_r", 3), ("elbow_l", 1),
            ("elbow_r", 1), ("leg_l", 3), ("leg_r", 3), ("knee_l", 1), ("knee_r", 1), ("foot_l", 1), ("foot_r", 1),
-           ("hand_l", 4), ("hand_r", 4)]
+           ("hand_l", 5), ("hand_r", 5)]             # x, y, z, weight, surface height (0 = free in the air)
 IDX, _n = {}, 0
 for _k, _c in _LAYOUT:
     IDX[_k] = slice(_n, _n + _c)
@@ -54,9 +54,9 @@ POSES = {
     "sit_lean": {"lift": -0.42, "hips": (10, 0, 0), "spine": (22, 0, 0), "head": (-12, 0, 0), "leg_l": (78, 7),
                  "leg_r": (78, 7), "knee_l": 95, "knee_r": 95, "arm_l": (52, 10, 20), "arm_r": (52, 10, 20), "elbow_l": 70, "elbow_r": 70},
     "sit_table": {"lift": -0.42, "hips": (4, 0, 0), "spine": (8, 0, 0), "leg_l": (86, 6), "leg_r": (86, 6),
-                  "knee_l": 90, "knee_r": 90, "hand_l": (-0.16, 0.36, 0.20), "hand_r": (0.16, 0.36, 0.20)},
+                  "knee_l": 90, "knee_r": 90, "hand_l": (-0.16, 0.36, 0.20, 0.75), "hand_r": (0.16, 0.36, 0.20, 0.75)},
     "sit_floor": {"lift": -0.80, "hips": (-8, 0, 0), "spine": (14, 0, 0), "leg_l": (108, 14), "leg_r": (108, 14),
-                  "knee_l": 118, "knee_r": 118, "hand_l": (-0.2, 0.42, -0.02), "hand_r": (0.2, 0.42, -0.02)},
+                  "knee_l": 118, "knee_r": 118, "hand_l": (-0.2, 0.42, -0.02, 0.002), "hand_r": (0.2, 0.42, -0.02, 0.002)},
     "crouch": {"lift": -0.38, "hips": (22, 0, 0), "spine": (20, 0, 0), "head": (-22, 0, 0), "leg_l": (100, 10),
                "leg_r": (100, 10), "knee_l": 132, "knee_r": 132, "foot_l": 14, "foot_r": 14,
                "arm_l": (48, 10), "arm_r": (48, 10), "elbow_l": 40, "elbow_r": 40},
@@ -88,7 +88,7 @@ POSES = {
     "talk": {"arm_l": (22, 12), "elbow_l": 62, "arm_r": (30, 16), "elbow_r": 74},
     "shrug": {"arm_l": (10, 26, -30), "elbow_l": 80, "arm_r": (10, 26, -30), "elbow_r": 80, "head": (0, 8, 0)},
     "desk": {"lift": -0.42, "spine": (8, 0, 0), "head": (6, 0, 0), "leg_l": (86, 6), "leg_r": (86, 6), "knee_l": 88,
-             "knee_r": 88, "hand_l": (-0.14, 0.34, 0.17), "hand_r": (0.14, 0.34, 0.17)},
+             "knee_r": 88, "hand_l": (-0.14, 0.34, 0.17, 0.74), "hand_r": (0.14, 0.34, 0.17, 0.74)},
     "drive": {"lift": -0.52, "hips": (-12, 0, 0), "leg_l": (80, 6), "leg_r": (84, 6), "knee_l": 56, "knee_r": 50,
               "hand_l": (-0.17, 0.40, 0.30), "hand_r": (0.17, 0.40, 0.30)},
     "carry": {"hand_l": (-0.20, 0.30, 0.10), "hand_r": (0.20, 0.30, 0.10), "spine": (-5, 0, 0)},
@@ -131,7 +131,7 @@ POSES = {
     "hug": {"spine": (8, 0, 0), "hand_l": (-0.10, 0.42, 0.33), "hand_r": (0.10, 0.42, 0.30), "head": (6, 10, 0)},
     "toast": {"arm_r": (72, 14), "elbow_r": 42, "arm_l": (0, 7)},
     "eat": {"lift": -0.42, "hips": (6, 0, 0), "spine": (14, 0, 0), "head": (10, 0, 0), "leg_l": (86, 6), "leg_r": (86, 6),
-            "knee_l": 90, "knee_r": 90, "hand_l": (-0.15, 0.34, 0.20), "hand_r": (0.05, 0.20, 0.44)},
+            "knee_l": 90, "knee_r": 90, "hand_l": (-0.15, 0.34, 0.20, 0.75), "hand_r": (0.05, 0.20, 0.44)},
 }
 
 
@@ -165,8 +165,8 @@ def _apply(v, d):
         if k.startswith("hand_"):
             if val is None:
                 v[sl] = 0
-            else:
-                v[sl] = (val[0], val[1], val[2], 1.0)
+            else:                                    # (x, y, z) in the air, or (x, y, z, surface) resting flat on a surface
+                v[sl] = (val[0], val[1], val[2], 1.0, float(val[3]) if len(val) > 3 else 0.0)
             continue
         vals = (val,) if isinstance(val, (int, float)) else tuple(val)
         v[sl] = 0
@@ -336,6 +336,10 @@ def _r3(m):
     return m[:3, :3]
 
 
+def _rot3(r):
+    return np.array([0.0, 0.0, float(r)]) if isinstance(r, (int, float)) else np.asarray(r, dtype=float)
+
+
 def _up_rot(a):          # parts that extend upward: +fwd leans toward +Y
     return _r3(rz(a[2]) @ rx(-a[0]) @ ry(a[1]))
 
@@ -419,13 +423,34 @@ def solve_pose(v, world=None, reach=None, look=None):
         w = float(hv[3])
         fk_hand = S + Ru @ np.array([0, 0, -L_UARM]) + Ru @ _r3(rx(flex)) @ np.array([0, 0, -b])
         T = fk_hand + (np.array(hv[:3]) - fk_hand) * min(w, 1.0) if w > 1e-3 else fk_hand
+        surf, hand_rot, pole = float(hv[4]), None, norm(np.array([sgn * 0.75, -0.55, -0.45]))
+        if surf > 0 and w > 1e-3:
+            # Resting on a surface (table top, desk, floor): the palm lies flat ON it, the wrist stays above it and the
+            # forearm comes in level, so nothing dips through the top or its edge.
+            cw = chest_w if chest_w is not None else P @ C
+            sc = float(np.linalg.norm(cw[:3, 0]))
+            rc = cw[:3, :3] / sc
+            floor_z = float(world[2, 3]) if world is not None else 0.0
+            Tw = cw[:3, :3] @ np.array(hv[:3]) + cw[:3, 3]
+            Tw[2] = floor_z + (surf + 0.026) * sc
+            Sw = cw[:3, :3] @ S + cw[:3, 3]
+            fw = np.array([Tw[0] - Sw[0], Tw[1] - Sw[1], 0.0])
+            fw = fw / max(float(np.linalg.norm(fw)), 1e-6)
+            wrist_w = Tw - fw * 0.085 * sc + np.array([0, 0, 0.012 * sc])
+            wrist = rc.T @ (wrist_w - cw[:3, 3]) / sc
+            T = fk_hand + (wrist - fk_hand) * min(w, 1.0)
+            b = L_FARM
+            pole = norm(np.array([sgn * 0.9, -0.45, 0.12]))
+            zc = -(rc.T @ fw)
+            xc = rc.T @ np.array([0, 0, 1.0])
+            hand_rot = np.column_stack([xc, np.cross(zc, xc), zc])            # hand's own axes, in chest space
         if reach and side in reach and reach[side][1] > 1e-3 and chest_w is not None:
             tw, ww = reach[side]
             loc = (np.linalg.inv(chest_w) @ np.append(tw, 1.0))[:3]
             T = T + (loc - T) * ww
             w = max(w, ww)
+        k = 0.0
         if w > 1e-3:
-            pole = norm(np.array([sgn * 0.75, -0.55, -0.45]))
             Ri, fi = _ik(S, T, L_UARM, b, pole)
             k = min(w, 1.0)
             k = k * k * (3 - 2 * k)
@@ -436,7 +461,11 @@ def solve_pose(v, world=None, reach=None, look=None):
         M["uarm_" + side] = U
         F = tr((0, 0, -L_UARM)) @ rx(flex)
         M["farm_" + side] = F
-        M["hand_" + side] = tr((0, 0, -L_FARM))
+        Hd = tr((0, 0, -L_FARM))
+        if hand_rot is not None and k > 0:
+            fore = Ru @ _r3(rx(flex))                                         # forearm axes in chest space
+            Hd[:3, :3] = _qlerp(np.eye(3), fore.T @ hand_rot, k)
+        M["hand_" + side] = Hd
         # ---- leg
         Tm = tr((sgn * HIP[0], HIP[1], HIP[2]))
         Tm[:3, :3] = _limb_rot(v[IDX["leg_" + side]], sgn)
@@ -802,11 +831,16 @@ class Person(Node):
             yaw = math.radians(float(self.rot.at(t)[2]))
             self.move_by((-math.sin(yaw) * dist, math.cos(yaw) * dist, 0), t, dur, "inout")
 
-    def sit(self, t=0.0, dur=1.0, seat=0.46, pose="sit", step=0.0, **over):
+    def sit(self, t=0.0, dur=1.0, seat=0.46, pose="sit", step=0.0, table=None, **over):
         """Sit on something whose top is `seat` metres high. Already seated at the start: put the figure AT the seat
         (same heading as the chair). Sitting down on camera: stand the figure ~0.35 m in front of the seat and pass
         step=0.35 - it hinges forward, backs onto the seat and settles (standing inside a chair first would clip)."""
         lift = (seat + 0.085) / (self.height / 1.75) - HIP_H
+        if table is not None:                        # hands rest flat on a top `table` metres above the floor
+            k = self.height / 1.75
+            over.setdefault("hand_l", (-0.16, 0.36, 0.2, table / k))
+            over.setdefault("hand_r", (0.16, 0.36, 0.2, table / k))
+            pose = "sit_table" if pose == "sit" else pose
         if t <= 0 and not self.posetrack.segs:
             return self.pose(pose, t, dur, lift=lift, **over)
         self._step(t, dur * 0.7, -step)
@@ -1289,15 +1323,40 @@ class Person(Node):
     def collapse(self, t=0.0, dur=1.1, pose="sprawl", mirror=False):
         """Knees give way, then the body drops to the floor."""
         self.pose("cower", t, dur * 0.42, ease="in2", head=(-10, 0, 0), hand_l=None, hand_r=None,
-                  arm_l=(30, 30), arm_r=(20, 34), elbow_l=40, elbow_r=30)
+                  arm_l=(30, 14), arm_r=(20, 16), elbow_l=40, elbow_r=30)
         self.pose(pose, t + dur * 0.42, dur * 0.58, ease="out2", mirror=mirror)
         return self
 
-    def hold(self, node, side="r", at=(0, 0.03, -0.09), rot=(0, 0, 0)):
-        """Attach a prop Node to a hand so it follows it."""
-        node.parent_to(self.part["hand_" + side])
+    def hold(self, node, side="r", at=(0, 0.03, -0.09), rot=(0, 0, 0), upright=False, drop=0.0):
+        """Attach a prop Node to a hand so it follows it. `at` = where on the hand (palm centre by default).
+        upright=True keeps the prop level whatever the arm does (glasses, cups, trays, lanterns, bottles);
+        drop = how far below the grip the prop's own origin hangs (a glass held by its bowl: ~0.1)."""
+        hand = self.part["hand_" + side]
+        node.parent_to(hand)
         node.at(pos=at, rot=rot)
         node.scl.set(node.scl.default / (self.height / 1.75))       # keep the prop's real size on scaled figures
+        self.allow(node)
+        if upright:
+            from .track import FnTrack
+            from .xform import euler as _eul
+            base, r0 = v3(at), _r3(_eul(_rot3(rot)))
+
+            def inv_rot(t):
+                m = hand.matrix(t)[:3, :3]
+                return (m / max(float(np.linalg.norm(m[:, 0])), 1e-9)).T
+
+            def angles(t):                                           # hand-local rotation that cancels the hand's own
+                m = inv_rot(t) @ r0
+                a = math.asin(max(-1.0, min(1.0, m[2, 1])))
+                return np.degrees([a, math.atan2(-m[2, 0], m[2, 2]), math.atan2(-m[0, 1], m[1, 1])])
+            node.rot = FnTrack(angles)
+            node.pos = FnTrack(lambda t: base + inv_rot(t) @ np.array([0, 0, -drop]))
+        return self
+
+    def allow(self, *nodes):
+        """Tell the clipping check that touching / overlapping these props is intended (a seat belt, a box being
+        carried, the car this person sits in). Returns self."""
+        self.__dict__.setdefault("_allowed", set()).update(id(n) for n in nodes)
         return self
 
     def wear(self, mesh, part="head", at=(0, 0, 0), rot=(0, 0, 0), color=None, mat="flat", **kw):

@@ -66,8 +66,9 @@ class KitMixin:
         if round:
             r = (size if isinstance(size, (int, float)) else size[0]) / 2
             m.cyl(r, 0.04, at=(0, 0, h - 0.04), seg=40)
-            if cloth:
-                m.cyl(r, h * 0.55, at=(0, 0, h - 0.04 - h * 0.55), r2=r, seg=40, cap=False)
+            if cloth:                              # a short overhang: legs go under it, not through it
+                drop = 0.1 if cloth is True else float(cloth)
+                m.cyl(r + 0.004, drop, at=(0, 0, h - 0.04 - drop), r2=r + 0.004, seg=40, cap=False)
             m.cyl(0.05, h - 0.04).cyl(r * 0.5, 0.03, seg=28)
         else:
             w, d = size
@@ -163,10 +164,22 @@ class KitMixin:
         kw.setdefault("mat", "gloss")
         return self.add(Mesh().lathe([(0.036, 0), (0.038, 0.17), (0.014, 0.25), (0.014, 0.31)], seg=16), at=v3(at), name=kw.pop("name", "bottle"), **kw)
 
-    def glass(self, at=(0, 0, 0), wine=True, **kw):
-        kw.setdefault("mat", "glass")
-        prof = [(0.034, 0), (0.006, 0.008), (0.005, 0.085), (0.038, 0.13), (0.03, 0.2)] if wine else [(0.03, 0), (0.036, 0.12)]
-        return self.add(Mesh().lathe(prof, seg=16), at=v3(at), name=kw.pop("name", "glass"), **kw)
+    def glass(self, at=(0, 0, 0), wine=True, drink="#7a1626", **kw):
+        """Stemmed wine glass (wine=True) or a tumbler. Drawn as a small solid, glossy object so it reads at any
+        size; `drink` colours the liquid surface (None = empty)."""
+        kw.setdefault("mat", "gloss")
+        kw.setdefault("color", "#dfe4e8")
+        m = Mesh()
+        if wine:
+            m.lathe([(0.0, 0.0), (0.036, 0.0), (0.036, 0.005), (0.007, 0.012), (0.0055, 0.088), (0.022, 0.104), (0.038, 0.135),
+                     (0.041, 0.165), (0.036, 0.2), (0.0, 0.2)], seg=20)
+            if drink:
+                m.cyl(0.0335, 0.004, at=(0, 0, 0.198), seg=20, paint=drink)
+        else:
+            m.lathe([(0.0, 0.0), (0.03, 0.0), (0.036, 0.12), (0.0, 0.12)], seg=20)
+            if drink:
+                m.cyl(0.033, 0.004, at=(0, 0, 0.118), seg=20, paint=drink)
+        return self.add(m, at=v3(at), name=kw.pop("name", "glass"), **kw)
 
     def plate(self, at=(0, 0, 0), r=0.13, **kw):
         return self.add(Mesh().lathe([(r * 0.6, 0), (r, 0.018)], seg=28), at=v3(at), name=kw.pop("name", "plate"), **kw)
@@ -437,11 +450,11 @@ class KitMixin:
         n.anchors.update(nose=(0, 19, 0), tail=(0, -19, 2), engine_l=(-6, 2, -1.7), engine_r=(6, 2, -1.7), wing_l=(-17, -6.5, 0.25), wing_r=(17, -6.5, 0.25))
         return n
 
-    def cabin(self, rows=6, at=(0, 0), layout=(3, 3), pitch=0.86, walls="left", rot=0, **kw):
+    def cabin(self, rows=6, at=(0, 0), layout=(3, 3), pitch=0.86, walls="left", rot=0, aisle=0.62, **kw):
         """Airliner cabin interior: seat rows facing +Y, aisle down the middle, floor, optional side wall(s)
         with windows and overhead bins. walls: 'left', 'right', 'both', ''. Returns a Node with
         .seat(row, col) -> world (x, y) for s.person(...).sit(seat=cabin.seat_h); col 0 is the far-left seat."""
-        sw, aisle = 0.5, 0.56
+        sw = 0.5
         nl, nr = layout
         xs = [-(aisle / 2 + sw * (nl - i - 0.5)) for i in range(nl)] + [aisle / 2 + sw * (i + 0.5) for i in range(nr)]
         seat = Mesh()

@@ -138,6 +138,17 @@ def cmd_sheet(a):
     print(f"{len(times)} frames at t = {', '.join(str(t) for t in times)}  ({time.time() - t0:.0f}s)")
 
 
+def cmd_lint(a):
+    """Build the scene and run every preflight check without rendering anything (no GPU, a few seconds)."""
+    scene = os.path.abspath(a.scene)
+    t0 = time.time()
+    rc, lines, err = run_blender({"mode": "lint", "scene": scene, "cls": a.cls})
+    if rc != 0:
+        _fail(err)
+    n = len(_seen_warn)
+    print(f"lint: {n} flag{'s' if n != 1 else ''}" + ("" if n else " - clean") + f"  ({time.time() - t0:.0f}s)")
+
+
 def cmd_blend(a):
     scene = os.path.abspath(a.scene)
     out = os.path.abspath(a.out or os.path.join(_outdir(a), _stem(scene) + ".blend"))
@@ -395,6 +406,10 @@ def main(argv=None):
     p.add_argument("--scale", type=float, default=0.25, help="tile scale vs full res (default 0.25 = 480x270)")
     p.add_argument("--range", type=float, nargs=2, metavar=("T0", "T1"))
     p.set_defaults(fn=cmd_sheet)
+
+    p = sub.add_parser("lint", help="build + preflight checks only (clipping, ground, lights) - no rendering, no GPU")
+    common(p)
+    p.set_defaults(fn=cmd_lint)
 
     p = sub.add_parser("blend", help="export an editable .blend")
     common(p)

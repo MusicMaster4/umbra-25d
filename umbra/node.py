@@ -29,6 +29,7 @@ class Node:
         self.vis = Track(1.0)
         self.props = {}                       # custom float props: glow, reveal, trim, dash, phase...
         self.anchors = {}                     # name -> local point (for labels / attachments)
+        self.src_line = _caller_line()        # where in the scene file this was created (used in preflight flags)
         scene._nodes.append(self)
 
     # ------------------------------------------------------------------ hierarchy
@@ -134,6 +135,12 @@ class Node:
                     roll = max(-60, min(60, -turn * bank * 3.0))
                 return np.array([pit, roll, yaw])
             self.rot.fn(f, t, dur, ease)
+        return self
+
+    def allow(self, *nodes):
+        """Tell the clipping check that overlapping these nodes is intended (a rocket in its launch ring, a drawer in
+        a desk). For "nothing collides with this at all" set node.solid = False instead."""
+        self.__dict__.setdefault("_allowed", set()).update(id(n) for n in nodes)
         return self
 
     def drive(self, pos=None, rot=None, scale=None):
@@ -408,6 +415,22 @@ class Node:
             o.hide_render = bool(vals[0])
         elif not self.eff_vis(0.0):
             o.hide_render = True
+
+
+_PKG = __file__.replace("\\", "/").rsplit("/", 1)[0]
+
+
+def _caller_line():
+    """Line number in the user's scene file that (indirectly) created a node."""
+    import sys
+    f = sys._getframe(1)
+    for _ in range(14):
+        if f is None:
+            break
+        if not f.f_code.co_filename.replace("\\", "/").startswith(_PKG):
+            return f.f_lineno
+        f = f.f_back
+    return 0
 
 
 _PROP_DEFAULTS = {"glow": 1.0, "reveal": 1.0, "trim": 0.0, "dash": 0.0, "phase": 0.0}

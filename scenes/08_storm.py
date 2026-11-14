@@ -62,7 +62,7 @@ class Storm(Scene):
         DECK = boat.deck_z
         s.light(at=(0, -0.2, DECK + 1.2), color="#ffb060", power=70, parent=boat)                              # cabin light
         skipper = s.person(at=(0.45, -3.3, DECK), color=AMBER, pose="guard", heading=0, parent=boat)            # aft deck
-        hand = s.person(at=(-0.5, 2.0, DECK), color=RED, pose="crouch", heading=15, parent=boat)                # foredeck
+        hand = s.person(at=(-0.55, 2.05, DECK), color=RED, pose="crouch", heading=-90, parent=boat)             # foredeck, facing inboard
         skipper.gesture("sway", t=0, dur=20)
         hand.gesture("struggle", t=0, dur=20)
 

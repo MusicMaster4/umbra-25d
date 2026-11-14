@@ -102,10 +102,10 @@ class RocketLaunch(Scene):
 
         fl = Mesh()
         fl.lathe([(0.0, -34), (1.5, -21), (2.3, -9), (2.1, -2), (1.5, 0)], seg=16)
-        plume = s.add(fl, at=(0, 0, -1.8), parent=rocket, color="#ff8a2a", mat="flat", glow=2.6, shadow=False)
+        plume = s.add(fl, at=(0, 0, -1.8), parent=rocket, color="#ff8a2a", mat="flat", glow=2.6, shadow=False, solid=False)   # flame: passable
         co = Mesh()
         co.lathe([(0.0, -15), (0.9, -7), (1.25, -1.5), (1.0, 0)], seg=16)
-        core = s.add(co, at=(0, 0, -1.9), parent=rocket, color="#fff0c8", mat="flat", glow=3.0, shadow=False)
+        core = s.add(co, at=(0, 0, -1.9), parent=rocket, color="#fff0c8", mat="flat", glow=3.0, shadow=False, solid=False)
         for f in (plume, core):
             f.scale((1, 1, 0.08), t=0, dur=0).hide(0).show(IGN).scale((1, 1, 1), t=IGN, dur=0.9, ease="out")
         s.light(at=(0, 0, -8), color="#ff9a3a", power=0, parent=rocket).dim(120000, t=IGN, dur=0.4)

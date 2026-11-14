@@ -202,7 +202,7 @@ class Orbit(Scene):
         globe = Mesh()
         globe.sphere(R_E, at=(0, 0, 0), seg=96)
         s.add(globe, at=(0, 0, 0), color="#4a6a8c", mat="clay", ink=True, shadow=False)
-        s.add(graticule_mesh(), at=(0, 0, 0), color="#8fa6bf", mat="clay", ink=False, shadow=False).spin(4, axis="z")
+        s.add(graticule_mesh(), at=(0, 0, 0), color="#8fa6bf", mat="clay", ink=False, shadow=False, solid=False).spin(4, axis="z")   # lines drawn on the globe
 
         mm = Mesh()
         mm.sphere(R_M, at=(0, 0, 0), seg=64)

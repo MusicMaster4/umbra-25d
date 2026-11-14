@@ -6,6 +6,7 @@ and renders an mp4. No Blender knowledge needed.
 ## Loop (do exactly this)
 
 ```bash
+python -m umbra lint   scenes/my_scene.py          # 0. build + all checks, no rendering, no GPU (~5 s). Fix the flags.
 python -m umbra sheet  scenes/my_scene.py          # 1. ONE image: 12 timestamped frames across the film. Look at it.
 python -m umbra sheet  scenes/my_scene.py -t 4.2 -t 4.4 -t 4.6 -t 4.8 --cols 4   # zoom in on a moment / fast event
 python -m umbra still  scenes/my_scene.py -t 6.5    # 2. one full-quality frame (text legibility, detail)
@@ -146,9 +147,10 @@ p = s.person(at=(x, y), color=RED, pose="stand", heading=0, face=(x, y),
   float fall run_pose dance hug toast`. Lying poses (`lie`, `sprawl`): feet toward the heading, head away from it.
 - joints (degrees, + = forward / outward / up / flexed): `hips spine head (fwd, side, twist)`, `arm_l arm_r leg_l
   leg_r (fwd, out, twist)`, `elbow_l elbow_r knee_l knee_r`, `foot_l foot_r`, `lift` (m), and
-  `hand_l hand_r=(x, y, z)` — hand IK target in chest space (x right, y forward, z up from the waist).
-- `p.sit(t, seat=0.46, pose="sit", step=0)` — seated from the start: put the person **at** the seat, same heading
-  as the chair. Sitting down on camera: stand them 0.35 m in front of the seat and pass `step=0.35` (they hinge
+  `hand_l hand_r=(x, y, z)` — hand IK target in chest space (x right, y forward, z up from the waist); add a 4th
+  value `(x, y, z, surface_height)` to rest the palm flat on a surface that high above the person's floor.
+- `p.sit(t, seat=0.46, pose="sit", step=0, table=None)` — seated from the start: put the person **at** the seat,
+  same heading as the chair. `table=0.75` lays both hands flat on a top that high (wrists above it, forearms level). Sitting down on camera: stand them 0.35 m in front of the seat and pass `step=0.35` (they hinge
   forward and back onto it). `p.stand(t, step=0.3)` leans, rises and ends clear of the seat.
 - **Locomotion templates** — `p.walk(to | [points], t, dur=None, style="walk")`, `p.run(...)`. Styles: `stroll walk
   march carry sneak limp trudge drunk jog run sprint`. Real gait cycles (stance/swing, heel strike, toe-off, pelvis
@@ -162,7 +164,8 @@ p = s.person(at=(x, y), color=RED, pose="stand", heading=0, face=(x, y),
   knock drink type wait`. Prefer these over hand-keyed pose sequences.
 - `p.turn(point | node | degrees, t)` · `p.look_at(target, t, hold)` · `p.reach("l"|"r", target, t, hold)` · `p.release("r", t)`
 - `p.gesture(kind, t, dur)`: `talk nod shake laugh tremble struggle breathe_hard wave sway type chew`
-- `p.hit(t, strength)` recoil · `p.collapse(t)` · `p.hold(prop, "r", at=(0, .03, -.09))` carry a prop in a hand
+- `p.hit(t, strength)` recoil · `p.collapse(t)` · `p.hold(prop, "r", upright=True, drop=0.1)` carry a prop in a
+  hand (`upright` keeps glasses, cups, trays and lanterns level whatever the arm does)
 - `p.wear(mesh, part="head", at=..., color=RED)` accessory; head part origin = neck base, skull centre 0.17 above
 - anchors: `p.anchor("head|above|face|chest|hips|hand_l|hand_r|foot_l|foot_r|feet")`
 - extras: `s.figure(at, pose, ...)` (frozen one-mesh statue) · `s.crowd(n, area=((x0,y0),(x1,y1)) | [points],
@@ -240,10 +243,20 @@ a mover) · `s.arrow(points, t)` · `s.ring(at, r, t, repeat=3)` · `s.zone(pts 
 - **Labels** are clamped inside the frame; mutual `look_at`/`reach` cycles are broken instead of recursing.
 - **Flicker**: `flicker()` is band-limited below ~4 Hz, a limiter low-passes anything riding on a light's power or a
   glow at bake time, and `render` ends with a measured flicker check (`flicker check: 0.3% (calm)` or a warning).
-- **Clipping**: `walk()` routes around furniture, and the preflight reports interpenetration with names, times and
-  positions — `warning: clipping: person #3 goes through 'table' at t=1.8-2.2s near (-3.9, -2.6, 0.7)`. It tests body
-  cores and leg/spine segments against solid props (so thin table tops count), movers against static props, two
-  people on one spot, and the camera inside geometry. Intended overlaps: `node.solid = False`.
+- **Clipping flags**: every prop is **solid** unless you say otherwise. `lint` / `sheet` / `render` flag anything
+  that passes through a solid, with who, what, when, where and the line of your file that made each object:
+  `clipping? person #3 (line 41) (arm) goes through 'table' (line 12) at t=1.8-2.2s near (-3.9, -2.6, 0.7)`.
+  On contact sheets the spot is circled in **magenta** so you can look at it. A flag is a question, not an error —
+  you decide:
+  - it is a mistake → move the thing, re-route the walk, change the pose;
+  - this thing is meant to be passable (flame, curtain, hologram, bush, water spray) → create it with
+    `solid=False` (`s.add(..., solid=False)`, any kit call, or `node.solid = False`);
+  - only this pair is meant to overlap (a rocket in its launch ring, a box being carried) → `a.allow(b)` /
+    `person.allow(node)`.
+  What is tested: body cores, spine, legs, forearms and hands of every person against solids (thin table tops
+  and rails count; hands may touch small graspable props), moving props against static ones, two people on one
+  spot, the camera inside geometry. `walk()` already routes around furniture, and hands in table poses rest **on**
+  the top (`p.sit(table=0.75)`), so most of this never fires.
 - **Preflight** also flags a camera under the ground and people below it. Treat every `warning:` as a bug to fix
   before rendering (move the thing, re-route the walk, or mark the overlap as intended).
 

@@ -138,7 +138,7 @@ rings, zones and light beams. Particles are analytic, so any frame can be render
 | depth shimmer on far detail | camera clip planes are fitted to the scene every frame (smoothed) |
 | smears across teleports and cuts | instant jumps and forgotten cuts are keyed as hard steps |
 | flicker | light and glow shimmer is band-limited below 4 Hz, low-passed again at bake time, and every render ends with a measured flicker check |
-| clipping | walks route around furniture; a preflight reports who passes through what, when and where — `clipping: person #3 goes through 'table' at t=1.8-2.2s near (-3.9, -2.6, 0.7)` |
+| clipping | props are solid unless created with `solid=False`; walks route around furniture; hands rest *on* table tops; `lint` flags who passes through what, when, where and from which line of the scene, and circles the spot in magenta on the contact sheet — the agent then fixes it or declares it intended |
 | sliding feet | stride follows speed; a walk asked to go too fast becomes a run |
 | labels off-screen, camera under the floor | labels are clamped; the preflight warns |
 
@@ -167,6 +167,7 @@ scene.py ──► umbra (Python, inside Blender) ──► EEVEE on the GPU ─
 python -m umbra sheet  scene.py [-n 12] [-t T ...] [--range T0 T1] [--cols 4] [--scale 0.25]
 python -m umbra still  scene.py -t T [-t T ...] [-q draft|preview|final|ultra]
 python -m umbra render scene.py [-q final] [-j 2] [--range T0 T1] [--resume] [--nvenc]
+python -m umbra lint   scene.py        # build + every check, no rendering, no GPU
 python -m umbra blend  scene.py
 python -m umbra api    [word]          # method signatures + docstrings, e.g. `api trail` (also in docs/API.md)
 python -m umbra check  video.mp4       # flicker meter

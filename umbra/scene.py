@@ -131,7 +131,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         obj["glow"] = 1.0
 
     def add(self, mesh, at=None, rot=None, scale=None, color=None, mat=None, name=None, parent=None,
-            shadow=None, glow=None, ink=None, alpha=None):
+            shadow=None, glow=None, ink=None, alpha=None, solid=None):
         """Add a Mesh builder (or bpy mesh) as one object. Returns a Node.
         mat: clay (default, lit) | satin | gloss | metal | glass | flat (unlit, glows) | fill (unlit) | water."""
         L = self.look
@@ -158,6 +158,8 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         obj.visible_shadow = bool(shadow)
         n = Node(self, obj, name)
         n.mat = mat
+        if solid is not None:                        # solid=True: nothing should pass through it; False: passable
+            n.solid = bool(solid)
         if color is None:
             color = L.prop
         n.color(color)
@@ -616,8 +618,11 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 return inv[n]
             return np.linalg.inv(n.matrix(t))
 
+        def tag(n):
+            return f"'{n.name}'" + (f" (line {n.src_line})" if getattr(n, "src_line", 0) else "")
+
         def hit(who, n, depth, t, where):
-            k = (who, n.name, id(n))
+            k = (who, tag(n), id(n))
             e = found.setdefault(k, [0.0, t, t, where, 0, -1.0])
             if depth > e[0]:
                 e[0], e[3] = depth, where
@@ -626,12 +631,14 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 e[5] = t
             e[2] = t
 
-        def cross(a, b, who, t):
+        def cross(a, b, who, t, ok=(), min_r=0.0):
             """Does the body segment a-b pierce a solid surface? Catches thin things (table tops, rails, doors)."""
             from mathutils import Vector
             mid, half = (a + b) / 2, float(np.linalg.norm(b - a)) / 2
             for n, st, lo, hi in solids:
-                if not n.eff_vis(t):
+                if id(n) in ok or not n.eff_vis(t):
+                    continue
+                if min_r and self._bounds(n)[1] < min_r:              # hands are allowed to touch small, graspable things
                     continue
                 if st and (np.any(mid < lo - half) or np.any(mid > hi + half)):
                     continue
@@ -653,9 +660,9 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 if loc is not None:
                     hit(who, n, 0.12, t, (float(mid[0]), float(mid[1]), float(mid[2])))
 
-        def test(p, who, lim, t, skip=None, pad=0.0, same=None):
+        def test(p, who, lim, t, skip=None, pad=0.0, same=None, ok=()):
             for n, st, lo, hi in solids:
-                if n is skip or not n.eff_vis(t):
+                if n is skip or id(n) in ok or not n.eff_vis(t):
                     continue
                 if same is not None and root(n) is same:                 # parts of one assembly overlap on purpose
                     continue
@@ -684,20 +691,25 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 n = n.parent
             return False
         for i, pn in enumerate(people):
-            who = pn.name if pn.name != "person" else f"person #{i + 1}"
+            who = (pn.name if pn.name != "person" else f"person #{i + 1}") + (f" (line {pn.src_line})" if pn.src_line else "")
+            ok = getattr(pn, "_allowed", ())
             for t in ts:
                 if not pn.eff_vis(t):
                     continue
-                test(pn.part["pelvis"].world(t, (0, 0, 0.05)), who, 0.05, t)
-                test(pn.part["chest"].world(t, (0, 0, 0.22)), who, 0.05, t)
-                test(pn.part["head"].world(t, (0, 0, HEAD_C)), who, 0.04, t)
+                test(pn.part["pelvis"].world(t, (0, 0, 0.05)), who, 0.05, t, ok=ok)
+                test(pn.part["chest"].world(t, (0, 0, 0.22)), who, 0.05, t, ok=ok)
+                test(pn.part["head"].world(t, (0, 0, HEAD_C)), who, 0.04, t, ok=ok)
                 hip = pn.part["pelvis"].world(t, (0, 0, 0.12))
-                cross(hip, pn.part["head"].world(t, (0, 0, HEAD_C * 0.6)), who, t)
+                cross(hip, pn.part["head"].world(t, (0, 0, HEAD_C * 0.6)), who, t, ok=ok)
+                for side in "lr":                                     # forearms and hands (resting ON a top is fine)
+                    elbow, wrist = pn.part["farm_" + side].world(t), pn.part["hand_" + side].world(t)
+                    cross(elbow + (wrist - elbow) * 0.3, wrist, who + " (arm)", t, ok=ok, min_r=0.25)
+                    cross(wrist, pn.part["hand_" + side].world(t, (0, 0, -0.14)), who + " (hand)", t, ok=ok, min_r=0.25)
                 if float(pn.posetrack.at(t)[IDX["lift"]][0]) > -0.2:      # seated / crouched legs tuck under things by design
                     for side in "lr":
                         knee = pn.part["shin_" + side].world(t)
-                        cross(pn.part["thigh_" + side].world(t, (0, 0, -0.1)), knee, who, t)
-                        cross(knee, pn.part["foot_" + side].world(t, (0, 0, 0.06)), who, t)
+                        cross(pn.part["thigh_" + side].world(t, (0, 0, -0.1)), knee, who + " (leg)", t, ok=ok)
+                        cross(knee, pn.part["foot_" + side].world(t, (0, 0, 0.06)), who + " (leg)", t, ok=ok)
         for n, (c, r, lo, hi) in movers:
             if type(n).__name__ == "Person" or thrown(n):            # thrown / falling debris may pile up
                 continue
@@ -708,7 +720,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                     continue
                 m = n.matrix(t)
                 for q in corners:
-                    test(m[:3, :3] @ q + m[:3, 3], n.name, 0.15, t, skip=n, same=rn)
+                    test(m[:3, :3] @ q + m[:3, 3], tag(n), 0.15, t, skip=n, same=rn, ok=getattr(n, "_allowed", ()))
         for t in ts[::2]:                                            # camera inside something
             test(self.cam.pos.base(t), "camera", 0.02, t)
         for i, a in enumerate(people):                               # two bodies merged into one blob
@@ -726,8 +738,13 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         rows = sorted(((k, v) for k, v in found.items() if v[4] >= 2), key=lambda kv: -kv[1][0])     # ignore one-sample grazes
         for (who, name, _), (depth, t0, t1, w, cnt, _t) in rows[:8]:
             span = f"t={t0:.1f}s" if t1 - t0 < 0.25 else f"t={t0:.1f}-{t1:.1f}s"
-            self.warn(f"clipping: {who} goes through '{name}' at {span} near ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f}) "
-                      f"- move one of them or route around (node.solid = False silences an intended overlap)")
+            self.warn(f"clipping? {who} goes through {name} at {span} near ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f}). "
+                      f"Look at it (sheet -t {(t0 + t1) / 2:.1f} marks the spot in magenta): fix it by moving / re-routing, "
+                      f"or if it is meant to be, say so: <that node>.solid = False, or person.allow(<that node>).")
+        if self.q.get("flags"):                                      # draw the suspects on contact sheets / stills
+            for (who, name, _), (depth, t0, t1, w, cnt, _t) in rows[:12]:
+                self.dot(w, r=26, ring=True, color="#ff2bd6", t=max(t0 - 0.05, 0.0), out=t1 + 0.2)
+                self.dot(w, r=4, color="#ff2bd6", t=max(t0 - 0.05, 0.0), out=t1 + 0.2)
         if len(rows) > 8:
             self.warn(f"clipping: ...and {len(rows) - 8} more overlaps")
 
@@ -793,11 +810,6 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         if n_sh > 5:
             self.warn(f"render time: {n_sh} shadow-casting lights (each adds roughly 1 s per frame). Keep shadows on the 2-3 lights "
                       f"that shape the shot and pass shadow=False to the rest (s.light / s.lamp).")
-        if self.check_clipping:
-            try:
-                self._clip_check()
-            except Exception as ex:                                  # a check must never stop a render
-                print("UMBRA_WARN clipping check skipped:", repr(ex))
 
     def _auto_cuts(self, times):
         """A camera that teleports without cam.cut() would smear across the frame; treat big jumps as cuts."""
@@ -817,6 +829,11 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         self._warned = set()
         self._auto_cuts([(float(f) - 1.0) / self.fps for f in sorted(frames)])
         self._auto_layer()
+        if self.check_clipping:
+            try:
+                self._clip_check()
+            except Exception as ex:                                  # a check must never stop a render
+                print("UMBRA_WARN clipping check skipped:", repr(ex))
         B = Baker(self.fps, frames, self._cuts)
         for fn in self._post:              # things that need the final camera / targets (labels...)
             fn(B)

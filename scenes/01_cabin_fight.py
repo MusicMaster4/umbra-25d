@@ -1,5 +1,6 @@
 """A struggle in the aisle, then the aircraft goes down. Blueprint look, two shots."""
 from umbra import *
+from umbra.people import POSES
 
 
 class CabinFight(Scene):
@@ -10,7 +11,7 @@ class CabinFight(Scene):
         CUT = 10.8
         # ------------------------------------------------------------ shot 1: the cabin
         ship = s.group("ship")                                    # everything inside rides on this
-        cabin = s.cabin(rows=7, walls="left", parent=ship)
+        cabin = s.cabin(rows=7, walls="left", parent=ship, aisle=0.78)       # room for two people to fight in
         rng = s.rng
         crowd = []
         for row in range(7):
@@ -27,9 +28,11 @@ class CabinFight(Scene):
         ax, y2, y5 = 0.0, cabin.aisle(2)[1], cabin.aisle(5)[1]
 
         # rise into the leg-room in front of the seat, side-step to the aisle, then go forward (no walking through seats)
-        red.pose("stand", t=1.2, dur=0.7).move_by((0, 0.3, 0), t=1.25, dur=0.6).walk((ax, y2 + 0.4), t=1.9, dur=0.8, avoid=False)
+        tucked = dict(arm_l=(0, 3), arm_r=(0, 3), elbow_l=4, elbow_r=4)            # arms straight down: the rows are tight
+        red.pose("stand", t=1.2, dur=0.7, **tucked).move_by((0, 0.3, 0), t=1.25, dur=0.6)
+        red.move((ax, y2 + 0.4, 0), t=1.9, dur=0.8)                          # side-steps out, still facing forward
         red.walk((ax, 0.55), t=2.8, dur=1.7, avoid=False)
-        blue.pose("stand", t=3.2, dur=0.7).move_by((0, 0.3, 0), t=3.25, dur=0.5)
+        blue.pose("stand", t=3.2, dur=0.7, **tucked).move_by((0, 0.3, 0), t=3.25, dur=0.5)
         blue.move((ax, y5 + 0.4, 0), t=3.8, dur=0.55).turn((ax, -5), t=3.8, dur=0.6)      # slides out sideways, turning to face him
         blue.walk((ax, 1.3), t=4.5, dur=0.5)
         red.pose("guard", t=4.6, dur=0.3)
@@ -41,7 +44,8 @@ class CabinFight(Scene):
         red.pose("grab", t=6.95, dur=0.25).gesture("struggle", t=7.1, dur=1.5)
         blue.pose("grab", t=7.0, dur=0.25).gesture("struggle", t=7.1, dur=1.5)
         blue.pose("punch", t=8.6, dur=0.12, ease="in").pose("guard", t=9.0, dur=0.4, mirror=True)
-        red.hit(t=8.7, strength=1.6).collapse(t=8.8, dur=1.0)
+        down = dict(POSES["sprawl"], arm_l=(8, 16), arm_r=(-6, 14), elbow_l=24, elbow_r=30, leg_l=(4, 8), leg_r=(-2, 6))
+        red.hit(t=8.7, strength=1.6).collapse(t=8.8, dur=1.0, pose=down)             # falls along the aisle, limbs clear of the seats
         for i, p in enumerate(crowd):
             p.look_at(red.anchor("head"), t=3.0 + 0.2 * (i % 6), hold=5.0)
             p.pose("cower", t=9.7 + 0.05 * (i % 7), dur=0.5, lift=p.posetrack.default[3] + 0.06, hips=(8, 0, 0), spine=(14, 0, 0), head=(26, 0, 0))
