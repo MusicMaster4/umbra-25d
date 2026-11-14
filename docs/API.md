@@ -143,7 +143,7 @@
   Flat ring on the ground. t=None -> static marker ring. Otherwise it expands from 0 to r and fades (repeat it for a radar / sonar ping); hold=True keeps it at full radius instead of fading.
 - `zone(pts, color=None, alpha=0.22, t=None, dur=0.6, z=0.02, outline=True, name='zone')`  
   Translucent area on the ground: pts = polygon [(x, y)...] or ((cx, cy), radius) for a circle.
-- `beam(at, aim, length=8.0, angle=28.0, color='#fff3cf', alpha=0.16, parent=None, light=True, power=600.0, shadow=True, name='beam')`  
+- `beam(at, aim, length=8.0, angle=28.0, color='#fff3cf', alpha=0.07, parent=None, light=True, power=600.0, shadow=True, name='beam')`  
   Visible cone of light (torch, searchlight, projector) + a real spot light. Parent it to what holds it.
 - `marker(at, color=None, size=1.0, t=None, name='marker')`  
   Map-pin style marker that drops in with a bounce.
@@ -174,7 +174,7 @@
   Small screen-space dot (or ring) pinned to a px point or 3D target.
 - `focus(target, r=70.0, t=0.0, out=None, color=None)`  
   Thin ring that locks onto a 3D target (draws attention without text).
-- `label(target, body, sub=None, t=0.0, out=None, offset=(-150, -150), style='box', color=None, size=30, font='label', tracking=0.14, upper=True, fixed=False, dot=True, name='label')`  
+- `label(target, body, sub=None, t=0.0, out=None, offset=(-150, -150), style='box', color=None, size=36, font='label', tracking=0.14, upper=True, fixed=False, dot=True, name='label')`  
   Callout attached to a 3D point (Node, anchor, or (x, y, z)); it follows the target. style: box (outlined) | tag (filled) | line (underlined) | plain. offset = px from target to the label's near corner (negative y = above). fixed=True pins the label where it first appears; the leader still follows.
 - `fade_from(color='black', t=0.0, dur=1.0)`  
   Open on a solid colour and reveal the scene.
@@ -332,8 +332,8 @@
 - `add(other, at=(0, 0, 0), rot=(0, 0, 0), scale=1.0)`  
   Merge another Mesh builder (transformed) into this one.
 - `bounds()`
-- `box(size=(1, 1, 1), at=(0, 0, 0), rot=(0, 0, 0), bottom=False, taper=1.0, **kw)`  
-  Box centred on `at` (bottom=True: sits on `at`). taper<1 narrows the top (roofs, plinths).
+- `box(size=(1, 1, 1), at=(0, 0, 0), rot=(0, 0, 0), bottom=False, taper=1.0, bevel=0.0, **kw)`  
+  Box centred on `at` (bottom=True: sits on `at`). taper<1 narrows the top (roofs, plinths). bevel = chamfer width in metres on every edge (upholstery, machined parts; gives soft double edges when outlined).
 - `plane(size=(1, 1), at=(0, 0, 0), rot=(0, 0, 0), **kw)`  
   Flat quad in XY facing +Z.
 - `cyl(r=0.5, h=1.0, at=(0, 0, 0), rot=(0, 0, 0), seg=24, r2=None, cap=True, centered=False, **kw)`  

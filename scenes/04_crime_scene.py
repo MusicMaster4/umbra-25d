@@ -3,7 +3,7 @@ from umbra import *
 
 
 class CrimeScene(Scene):
-    look = NOIR.but(bg="#151515", key=0.9, key_color="#b8c6e2", fog=(13, 36, 0.8), vignette=0.5)   # moonlight; the lamps do the work
+    look = NOIR.but(bg="#151515", key=0.28, key_color="#b8c6e2", ambient_power=0.03, fog=(13, 36, 0.8), vignette=0.5)   # moonlight; the lamps do the work
     duration = 20
 
     def build(s):
@@ -65,7 +65,7 @@ class CrimeScene(Scene):
         LX, LY = -4.6, 1.35
         s.add(post, at=(LX, LY, 0), color="#333333", name="gas_lamp")
         s.add(Mesh().lathe([(0.07, 2.77), (0.16, 3.08)], seg=6), at=(LX, LY, 0), color="#ffcf8f", mat="flat", glow=1.6, name="gas_glass")
-        s.light(at=(LX, LY - 0.1, 2.9), color="#ffbf7a", power=240, radius=0.1).flicker()
+        s.light(at=(LX, LY - 0.1, 2.9), color="#ffbf7a", power=170, radius=0.1).flicker()
 
         s.crate(at=(-1.55, 1.42), size=0.72, rot=7)                # stacked by hand: the constable's path must stay clear
         s.crate(at=(-0.72, 1.48), size=0.55, rot=-11)
@@ -79,6 +79,7 @@ class CrimeScene(Scene):
         body = s.person(at=(GX, 0.95), color="#6e1a1a", pose="sprawl", build="woman", outfit="dress", hair="bun", heading=90)
         body.pose("sprawl", t=0, dur=0, leg_l=(0, 5, 0), leg_r=(0, 9, 0), knee_l=0, knee_r=6)   # keep the feet at the hem
         body.color(RED, t=6.2, dur=1.0)
+        body.lamp.color(RED).dim(0, t=0).dim(150, t=6.2, dur=1.0)                  # her red pool comes up as the lantern finds her
 
         cop = s.person(at=(-6.6, 0.1), color=BLUE, hat="helmet", heading=-90)
         lantern = s.add(Mesh().cyl(0.05, 0.13, at=(0, 0, -0.17), seg=10).cone(0.06, 0.05, at=(0, 0, -0.04), seg=10),

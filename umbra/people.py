@@ -38,7 +38,8 @@ for _k, _c in _LAYOUT:
     _n += _c
 NPOSE = _n
 
-_REST = {"arm_l": (0, 7, 0), "arm_r": (0, 7, 0), "elbow_l": 6, "elbow_r": 6}
+_REST = {"arm_l": (0, 7, 0), "arm_r": (0, 7, 0), "elbow_l": 9, "elbow_r": 9, "leg_l": (0, 2.2, 0), "leg_r": (0, 2.2, 0),
+         "head": (3, 0, 0), "spine": (1.5, 0, 0)}
 
 POSES = {
     "stand": {},
@@ -551,6 +552,10 @@ def part_meshes(build="man", hair="short", hat=None, outfit=None):
             _ring(0.215, 0.168 * sh, 0.102 * dp, p=2.7, y=bust), _ring(0.285, 0.186 * sh, 0.1 * dp, p=2.8, y=bust * 0.6),
             _ring(0.335, 0.204 * sh, 0.09 * dp, p=3.0), _ring(0.364, 0.198 * sh, 0.08 * dp, p=2.8),
             _ring(0.388, 0.125 * sh, 0.07, p=2.3), _ring(0.405, 0.074, 0.06, p=2.0), _ring(0.43, 0.05, 0.052)])
+    if outfit is None and build != "child":                       # shirt / jacket: a hem at the hips and a collar
+        m.loft([_ring(-0.14, 0.166 * (hp + wa) / 2, 0.104 * dp, p=2.9), _ring(-0.04, 0.156 * wa, 0.098 * dp, p=2.8),
+                _ring(0.08, 0.146 * wa, 0.094 * dp, p=2.7)])
+        m.loft([_ring(0.392, 0.078, 0.07, n=12, y=-0.004), _ring(0.43, 0.062, 0.064, n=12, y=-0.006)])
     P["chest"] = m
     # ---- head (neck base at z = 0, skull centre at HEAD_C)
     m = Mesh()
@@ -572,7 +577,8 @@ def part_meshes(build="man", hair="short", hat=None, outfit=None):
         _limb(m, [(0.0, 0.05 * cap, 0.053 * cap), (-0.06, 0.049, 0.053), (-0.16, 0.043, 0.046), (-L_UARM, 0.036, 0.039)], k=lb)
         P["uarm_" + side] = m
         m = Mesh()
-        _limb(m, [(0.0, 0.036, 0.039), (-0.055, 0.038, 0.042), (-0.16, 0.031, 0.034), (-L_FARM, 0.0245, 0.029)], k=lb)
+        _limb(m, [(0.0, 0.036, 0.039), (-0.055, 0.038, 0.042), (-0.16, 0.031, 0.034), (-L_FARM + 0.035, 0.027, 0.031),
+                  (-L_FARM + 0.03, 0.031, 0.034), (-L_FARM, 0.031, 0.034)], k=lb)                          # cuff
         P["farm_" + side] = m
         # ---- hand: flat palm, tapering fingers with a slight curl, thumb
         m = Mesh()

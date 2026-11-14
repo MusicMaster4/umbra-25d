@@ -58,7 +58,8 @@ leave. Calls can be in any order. Every method returns the node, so chain them.
   of dashes; outline (`ink`) width is constant pixels. Text sizes are px on a 1080-tall canvas.
 - `glow` multiplies brightness of unlit things (1 = exact colour, 0 = black, >1 blooms).
 - Light `power` is watts at people scale: lamp 200–600, headlight 900–1800, floodlight 30 m away 10–25 kW,
-  pad lights 70 m away ~90 kW, impact flash 2–5 kW. Spill from a silhouette defaults to 28 W (`light=`).
+  pad lights 70 m away ~90 kW, impact flash 2–5 kW. Each silhouette pools 60 W of its own colour on the floor
+  (`light=` to change, 0 to switch off; dim it for white figures next to a wall).
 
 ## Art direction rules (these make it look expensive)
 
@@ -76,9 +77,9 @@ leave. Calls can be in any order. Every method returns the node, so chain them.
 
 | look | what it is | defaults worth knowing |
 |---|---|---|
-| `noir` | dark stage, soft key, glowing silhouettes with coloured spill | bg `#151515`, ground `#262626`, key 2.2, ambient 0.05, fade (14, 34), dof f/2.8 |
-| `clay` | bright white diorama, tilt-shift blur, red silhouettes | bg `#dcdcda`, key 3.0, ambient 0.62, fade (30, 70), dof f/1.4, miniature 1 |
-| `blueprint` | unlit dark fills + constant-width white outlines, no ground | prop `#202020`, ink 1.5 px, no lights |
+| `noir` | dark stage, low key, glowing silhouettes that pool their colour on the floor | bg `#151515`, ground `#232323`, key 1.3, ambient 0.04, fade (14, 34), dof f/2.8 |
+| `clay` | pale clay diorama, tilt-shift blur, red silhouettes with a red pool | bg `#d2d2d0`, key 2.5, ambient 0.4, fade (30, 70), dof f/1.2, miniature 1 |
+| `blueprint` | unlit dark fills + thin constant-width outlines, no ground | prop `#272727`, ink 1.15 px, no lights |
 | `dusk` | low orange sun, blue ambient, long shadows | bg `#1a1d2b`, key 2.4 from (−110°, 14°), fade (40, 120) |
 | `paper` | flat off-white infographic with dark outlines | bg `#efece4`, person `#1c1c1c`, no lights |
 
@@ -104,7 +105,8 @@ Composite shapes: build a `Mesh`, add primitives, `s.add(mesh, ...)` → **one**
 
 ```python
 m = Mesh()
-m.box((2, 1, .1), at=(0, 0, .75))            # centred on `at` (bottom=True to sit on it); sizes are full widths
+m.box((2, 1, .1), at=(0, 0, .75))            # centred on `at` (bottom=True to sit on it); sizes are full widths;
+                                             # bevel=0.03 chamfers the edges (upholstery, machined parts)
 m.cyl(.05, .75, at=(.9, .4, 0))              # cyl/cone/extrude/lathe/capsule: base at `at`, along +Z
 m.sphere(.3, at=(0, 0, 1), scale=(1, 1, .5), seg=24); m.tube([(0,0,0), (1,0,1), (2,0,1)], r=.03)
 m.loft([ring0, ring1, ...]); m.terrain(size, res, height=lambda x, y: ...)

@@ -62,11 +62,41 @@ class Mesh:
         return v.min(axis=0), v.max(axis=0)
 
     # ------------------------------------------------------------------ primitives
-    def box(self, size=(1, 1, 1), at=(0, 0, 0), rot=(0, 0, 0), bottom=False, taper=1.0, **kw):
-        """Box centred on `at` (bottom=True: sits on `at`). taper<1 narrows the top (roofs, plinths)."""
+    def box(self, size=(1, 1, 1), at=(0, 0, 0), rot=(0, 0, 0), bottom=False, taper=1.0, bevel=0.0, **kw):
+        """Box centred on `at` (bottom=True: sits on `at`). taper<1 narrows the top (roofs, plinths).
+        bevel = chamfer width in metres on every edge (upholstery, machined parts; gives soft double edges when outlined)."""
         if isinstance(size, (int, float)):
             size = (size,) * 3
         x, y, z = size[0] / 2, size[1] / 2, size[2] / 2
+        if bevel > 0:
+            b = min(bevel, x * 0.45, y * 0.45, z * 0.45)
+            zo = z if bottom else 0.0
+            verts, idx, faces = [], {}, []
+
+            def vi(p):
+                if p not in idx:
+                    idx[p] = len(verts)
+                    verts.append((p[0], p[1], p[2] + zo))
+                return idx[p]
+            sg = (-1, 1)
+            for s_ in sg:                                            # six main faces
+                faces.append(tuple(vi((a * (x - b), c * (y - b), s_ * z)) for a, c in ((-1, -1), (1, -1), (1, 1), (-1, 1))))
+                faces.append(tuple(vi((a * (x - b), s_ * y, c * (z - b))) for a, c in ((-1, -1), (1, -1), (1, 1), (-1, 1))))
+                faces.append(tuple(vi((s_ * x, a * (y - b), c * (z - b))) for a, c in ((-1, -1), (1, -1), (1, 1), (-1, 1))))
+            for a in sg:                                             # twelve edge strips
+                for c in sg:
+                    faces.append((vi((-(x - b), a * (y - b), c * z)), vi((x - b, a * (y - b), c * z)),
+                                  vi((x - b, a * y, c * (z - b))), vi((-(x - b), a * y, c * (z - b)))))
+                    faces.append((vi((a * (x - b), -(y - b), c * z)), vi((a * (x - b), y - b, c * z)),
+                                  vi((a * x, y - b, c * (z - b))), vi((a * x, -(y - b), c * (z - b)))))
+                    faces.append((vi((a * (x - b), c * y, -(z - b))), vi((a * (x - b), c * y, z - b)),
+                                  vi((a * x, c * (y - b), z - b)), vi((a * x, c * (y - b), -(z - b)))))
+            for a in sg:                                             # eight corners
+                for c in sg:
+                    for d in sg:
+                        faces.append((vi((a * (x - b), c * (y - b), d * z)), vi((a * (x - b), c * y, d * (z - b))),
+                                      vi((a * x, c * (y - b), d * (z - b)))))
+            return self._add(verts, faces, at, rot, smooth=False, **kw)
         t = taper
         zo = z if bottom else 0.0
         verts = [(-x, -y, -z + zo), (x, -y, -z + zo), (x, y, -z + zo), (-x, y, -z + zo),

@@ -426,7 +426,7 @@ class FxMixin:
             n.edge = ol
         return n
 
-    def beam(self, at, aim, length=8.0, angle=28.0, color="#fff3cf", alpha=0.16, parent=None, light=True, power=600.0, shadow=True, name="beam"):
+    def beam(self, at, aim, length=8.0, angle=28.0, color="#fff3cf", alpha=0.07, parent=None, light=True, power=600.0, shadow=True, name="beam"):
         """Visible cone of light (torch, searchlight, projector) + a real spot light. Parent it to what holds it."""
         r = math.tan(math.radians(angle / 2)) * length
         m = Mesh().cyl(0.02, length, r2=r, seg=28, cap=False)

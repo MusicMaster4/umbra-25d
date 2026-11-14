@@ -97,7 +97,7 @@ class KitMixin:
 
     def sofa(self, at=(0, 0), w=1.9, rot=0, **kw):
         m = Mesh()
-        m.box((w, 0.85, 0.3), at=(0, 0, 0.1), bottom=True).box((w, 0.2, 0.52), at=(0, -0.33, 0.38), bottom=True, rot=(-6, 0, 0))
+        m.box((w, 0.85, 0.3), at=(0, 0, 0.1), bottom=True, bevel=0.04).box((w, 0.2, 0.52), at=(0, -0.33, 0.38), bottom=True, rot=(-6, 0, 0), bevel=0.04)
         m.box((0.18, 0.85, 0.5), at=(-w / 2 + 0.09, 0, 0.1), bottom=True).box((0.18, 0.85, 0.5), at=(w / 2 - 0.09, 0, 0.1), bottom=True)
         n = self.add(m, at=v3(at), rot=rot, name=kw.pop("name", "sofa"), **kw)
         n.seat = 0.42
@@ -458,9 +458,9 @@ class KitMixin:
         nl, nr = layout
         xs = [-(aisle / 2 + sw * (nl - i - 0.5)) for i in range(nl)] + [aisle / 2 + sw * (i + 0.5) for i in range(nr)]
         seat = Mesh()
-        seat.box((sw - 0.05, 0.47, 0.14), at=(0, 0.0, 0.39)).box((sw - 0.06, 0.1, 0.74), at=(0, -0.27, 0.8), rot=(-9, 0, 0))
-        seat.box((sw - 0.16, 0.07, 0.2), at=(0, -0.33, 1.2), rot=(-9, 0, 0))
-        seat.box((0.045, 0.42, 0.05), at=(-sw / 2 + 0.01, -0.02, 0.62)).box((0.045, 0.42, 0.05), at=(sw / 2 - 0.01, -0.02, 0.62))
+        seat.box((sw - 0.05, 0.47, 0.14), at=(0, 0.0, 0.39), bevel=0.03).box((sw - 0.06, 0.1, 0.74), at=(0, -0.27, 0.8), rot=(-9, 0, 0), bevel=0.028)
+        seat.box((sw - 0.16, 0.07, 0.2), at=(0, -0.33, 1.2), rot=(-9, 0, 0), bevel=0.02)
+        seat.box((0.045, 0.42, 0.05), at=(-sw / 2 + 0.01, -0.02, 0.62), bevel=0.012).box((0.045, 0.42, 0.05), at=(sw / 2 - 0.01, -0.02, 0.62), bevel=0.012)
         seat.box((sw * 0.7, 0.3, 0.3), at=(0, 0.0, 0.0), bottom=True)
         m = Mesh()
         ys = [(r - (rows - 1) / 2) * pitch for r in range(rows)]

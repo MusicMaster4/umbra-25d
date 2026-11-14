@@ -382,7 +382,7 @@ class OverlayMixin:
         return n
 
     # ------------------------------------------------------------------ callout label
-    def label(self, target, body, sub=None, t=0.0, out=None, offset=(-150, -150), style="box", color=None, size=30,
+    def label(self, target, body, sub=None, t=0.0, out=None, offset=(-150, -150), style="box", color=None, size=36,
               font="label", tracking=0.14, upper=True, fixed=False, dot=True, name="label"):
         """Callout attached to a 3D point (Node, anchor, or (x, y, z)); it follows the target.
         style: box (outlined) | tag (filled) | line (underlined) | plain.  offset = px from target to the label's
@@ -391,7 +391,7 @@ class OverlayMixin:
         if upper:
             body = body.upper()
         tw = self._width(body, font, size, tracking)
-        padx, pady = (18, 13) if style in ("box", "tag") else (0, 8)
+        padx, pady = (22, 16) if style in ("box", "tag") else (0, 9)
         cap = size * CAP
         sub_h = 0.0
         if sub:
@@ -426,7 +426,7 @@ class OverlayMixin:
         parts = []
         if style == "box":
             bg = self.rect((left, top + bh / 2), (bw, bh), color=self.look.bg, t=t0 + 0.2, alpha=0.82, anchor="left", z=8.0, parent=g, dur=0.35)
-            fr = self.frame((left, top), (bw, bh), width=2.5, color=col, t=t0 + 0.2, parent=g, z=10.0)
+            fr = self.frame((left, top), (bw, bh), width=3.0, color=col, t=t0 + 0.2, parent=g, z=10.0)
             parts += [bg, fr]
             tcol = col
         elif style == "tag":
@@ -456,7 +456,7 @@ class OverlayMixin:
             a_pt._is_px = True
             c_pt = lambda tt: corner(tt)
             c_pt._is_px = True
-            ln = self.line2d(a_pt, c_pt, width=2.5, color=col, t=t0, dur=0.3)
+            ln = self.line2d(a_pt, c_pt, width=3.0, color=col, t=t0, dur=0.3)
             parts.append(ln)
         if dot:
             parts.append(self.dot(target, r=4.5, color=col, t=t0))

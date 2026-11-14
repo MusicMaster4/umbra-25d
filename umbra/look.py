@@ -18,15 +18,15 @@ class Look:
         self.name = "custom"
         # -- backdrop
         self.bg = BG                    # what the camera sees behind everything
-        self.ground = "#262626"         # ground plane colour (None = no ground)
+        self.ground = "#232323"         # ground plane colour (None = no ground)
         self.ground_mat = "clay"
         self.fade = (14.0, 34.0)        # ground/objects dissolve into bg between these radii (m) around fade_center
         self.fade_center = (0.0, 0.0)
         self.fog = None                 # (start, end[, max]) camera-distance fade into bg
         # -- light rig
         self.ambient = "#ffffff"        # sky light colour
-        self.ambient_power = 0.05
-        self.key = 2.2                  # sun strength
+        self.ambient_power = 0.04
+        self.key = 1.3                  # sun strength (low: the silhouettes' own glow does much of the lighting)
         self.key_color = "#ffffff"
         self.key_dir = (-58.0, 46.0)    # (azimuth, elevation) deg, where the light comes FROM. Azimuth is relative
         self.key_rel = True             # to the first camera angle: 0 = from the camera, -90 = camera-left, 180 = backlight
@@ -35,11 +35,11 @@ class Look:
         self.fill_color = "#dfe6f5"
         self.ao = True
         # -- defaults for things you add
-        self.prop = "#8f8f8f"           # default object colour
+        self.prop = "#868686"           # default object colour
         self.mat = "clay"               # default material
         self.rough = 0.82
         self.person = "white"           # default silhouette colour
-        self.person_light = 1.0         # colour spill each silhouette casts on its surroundings
+        self.person_light = 1.0         # colour pool each silhouette casts on the floor around it (x 60 W)
         self.ink = False                # outline feature edges
         self.ink_color = "#f2f2f2"
         self.ink_width = 1.5            # outline width in px (constant on screen)
@@ -48,7 +48,7 @@ class Look:
         self.glow_size = 0.35
         self.dof = 2.8                  # default f-stop (None = everything sharp)
         self.miniature = 0.3            # 0 = real lens; 1 = blur grows with distance like a tilt-shift miniature
-        self.vignette = 0.38
+        self.vignette = 0.42
         self.grain = 5                  # film grain / dither strength at encode (0-12)
         self.aberration = 0.006         # chromatic fringe at frame edges
         self.motion_blur = 0.4          # shutter (0 = off)
@@ -74,13 +74,13 @@ class Look:
 
 NOIR = Look(name="noir")
 
-CLAY = Look(name="clay", bg="#dcdcda", ground="#e9e9e7", ambient="#ffffff", ambient_power=0.62, key=3.0,
-            key_color="#fff6ea", key_dir=(-50.0, 50.0), key_soft=10.0, fill=0.1, prop="#e6e6e4", rough=0.9,
-            person="red", person_light=0.0, glow=0.12, dof=1.4, miniature=1.0, vignette=0.22, fade=(30.0, 70.0),
-            text="#1b1b1b", text_dim="#5c5c5c", aberration=0.0015)
+CLAY = Look(name="clay", bg="#d2d2d0", ground="#d6d6d4", ambient="#ffffff", ambient_power=0.4, key=2.5,
+            key_color="#fff6ea", key_dir=(-50.0, 46.0), key_soft=7.0, fill=0.08, prop="#dededc", rough=0.9,
+            person="red", person_light=1.5, glow=0.14, dof=1.2, miniature=1.0, vignette=0.26, fade=(30.0, 70.0),
+            text="#1b1b1b", text_dim="#5c5c5c", aberration=0.0015)   # exposed below white so coloured spill shows
 
-BLUEPRINT = Look(name="blueprint", bg="#151515", ground=None, mat="fill", prop="#202020", ink=True,
-                 ambient_power=0.0, key=0.0, fill=0.0, person="white", person_light=0.0, glow=0.22, glow_size=0.3,
+BLUEPRINT = Look(name="blueprint", bg="#151515", ground=None, mat="fill", prop="#272727", ink=True, ink_width=1.15,
+                 ink_color="#e9e9e9", ambient_power=0.0, key=0.0, fill=0.0, person="white", person_light=0.0, glow=0.3, glow_size=0.3,
                  dof=None, vignette=0.3, aberration=0.007, fade=None, ao=False)
 
 DUSK = Look(name="dusk", bg="#1a1d2b", ground="#2b2d3a", ambient="#7f8fd0", ambient_power=0.22, key=2.4,

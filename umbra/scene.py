@@ -267,10 +267,10 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         if face is not None:
             p.face(face)
         color = color or self.look.person
-        power = self.look.person_light * 28.0 if light is None else light
+        power = self.look.person_light * 60.0 if light is None else light
         if power > 0 and mat in FLAT_MATS:
             # the spill is a soft glow, not a lamp: no shadow map (each shadow-casting light costs ~1 s per frame)
-            p.lamp = self.light(at=(0, 0.0, -0.25), color=color, power=power, radius=0.35, shadow=False, parent=p.pelvis,
+            p.lamp = self.light(at=(0, 0.0, 0.45), color=color, power=power, radius=0.3, shadow=False, parent=p,
                                 name=name + "_spill")
             p.lamp.obj.data.specular_factor = 0.0
         p.color(color)
