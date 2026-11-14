@@ -267,7 +267,8 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         color = color or self.look.person
         power = self.look.person_light * 28.0 if light is None else light
         if power > 0 and mat in FLAT_MATS:
-            p.lamp = self.light(at=(0, 0.0, -0.25), color=color, power=power, radius=0.35, shadow=True, parent=p.pelvis,
+            # the spill is a soft glow, not a lamp: no shadow map (each shadow-casting light costs ~1 s per frame)
+            p.lamp = self.light(at=(0, 0.0, -0.25), color=color, power=power, radius=0.35, shadow=False, parent=p.pelvis,
                                 name=name + "_spill")
             p.lamp.obj.data.specular_factor = 0.0
         p.color(color)
@@ -787,6 +788,11 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 if p[2] < g - 0.12:
                     self.warn(f"person '{n.name}' is {g - p[2]:.2f} m below the ground at t={t:.1f}s (at={p[0]:.1f}, {p[1]:.1f}, {p[2]:.2f})")
                     break
+        n_sh = sum(1 for n in self._nodes if type(n).__name__ == "LightNode" and n.obj is not None and n.obj.data.use_shadow
+                   and n.eff_vis(0.0))
+        if n_sh > 5:
+            self.warn(f"render time: {n_sh} shadow-casting lights (each adds roughly 1 s per frame). Keep shadows on the 2-3 lights "
+                      f"that shape the shot and pass shadow=False to the rest (s.light / s.lamp).")
         if self.check_clipping:
             try:
                 self._clip_check()

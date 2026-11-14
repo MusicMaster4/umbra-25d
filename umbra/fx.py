@@ -426,7 +426,7 @@ class FxMixin:
             n.edge = ol
         return n
 
-    def beam(self, at, aim, length=8.0, angle=28.0, color="#fff3cf", alpha=0.16, parent=None, light=True, power=600.0, name="beam"):
+    def beam(self, at, aim, length=8.0, angle=28.0, color="#fff3cf", alpha=0.16, parent=None, light=True, power=600.0, shadow=True, name="beam"):
         """Visible cone of light (torch, searchlight, projector) + a real spot light. Parent it to what holds it."""
         r = math.tan(math.radians(angle / 2)) * length
         m = Mesh().cyl(0.02, length, r2=r, seg=28, cap=False)
@@ -435,7 +435,8 @@ class FxMixin:
         pitch = math.degrees(math.asin(max(-1, min(1, d[2])))) - 90.0
         n = self.add(m, at=v3(at), rot=(pitch, 0, yaw), color=color, mat="beam", name=name, shadow=False, ink=False, alpha=alpha, parent=parent)
         if light:
-            n.lamp = self.light(at=(0, 0, 0), color=color, power=power, kind="spot", angle=angle * 1.25, blend=0.5, parent=n, name=name + "_light")
+            n.lamp = self.light(at=(0, 0, 0), color=color, power=power, kind="spot", angle=angle * 1.25, blend=0.5, parent=n,
+                                shadow=shadow, name=name + "_light")
             n.lamp.rot.set((180.0, 0.0, 0.0))
         return n
 

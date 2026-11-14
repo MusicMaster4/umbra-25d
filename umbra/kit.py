@@ -188,10 +188,10 @@ class KitMixin:
         g.flame, g.light = fl, lt
         return g
 
-    def lamp(self, at=(0, 0), kind="pendant", h=2.4, color="#ffd9a0", power=None, on=True, rot=0, **kw):
+    def lamp(self, at=(0, 0), kind="pendant", h=2.4, color="#ffd9a0", power=None, on=True, rot=0, shadow=True, **kw):
         """pendant (hangs from h) | floor | desk | street (modern, arm toward +Y) | gas (Victorian post lamp).
         power in watts (default per kind: 260 / 260 / 60 / 1500 / 420). Returns a group with .light and .bulb;
-        rot turns the whole lamp."""
+        rot turns the whole lamp. shadow=False for background lamps (saves render time)."""
         g = self.group("lamp", at=v3(at), rot=rot)
         m = Mesh()
         r_bulb, scale_b = 0.05, 1.0
@@ -226,7 +226,7 @@ class KitMixin:
         bulb = self.add(Mesh().sphere(r_bulb, at=bulb_at, scale=scale_b, seg=12), color=color, mat="flat", parent=g, name="bulb",
                         glow=2.0 if on else 0.0, ink=False)
         lt = self.light(at=bulb_at, color=color, power=power if on else 0.0, kind=kindl, radius=0.08, angle=130 if kind == "pendant" else 110,
-                        blend=0.7, aim=aim, parent=g, name="lamp_light")
+                        blend=0.7, aim=aim, parent=g, name="lamp_light", shadow=shadow)
         g.parts.update(bulb=bulb, light=lt)
         g.bulb, g.light = bulb, lt
         return g

@@ -14,12 +14,12 @@ class DinnerDate(Scene):
         s.shelf(at=(-0.6, 3.45), size=(3.6, 0.35, 2.1), levels=4, boxes=0.9, color="#3d372f", seed=4)
         s.plant(at=(-4.4, 3.1), h=1.5, color="#3f4a3a"); s.plant(at=(4.5, -2.6), h=1.2, color="#3f4a3a", seed=2)
 
-        def table(x, y, lamp=True):
+        def table(x, y, lamp=True, hero=False):
             t = s.table(at=(x, y), size=1.0, round=True, cloth=True, color="#d6cfc2")
             s.chair(at=(x - 0.72, y), rot=-90, color="#4a433b"); s.chair(at=(x + 0.72, y), rot=90, color="#4a433b")
             s.candle(at=(x, y + 0.16, 0.75), power=9)
             if lamp:
-                s.lamp(at=(x, y), kind="pendant", h=2.25, color=WARM, power=190)
+                s.lamp(at=(x, y), kind="pendant", h=2.25, color=WARM, power=190, shadow=hero)
             return t
 
         def diner(x, y, side, color, **kw):
@@ -35,7 +35,7 @@ class DinnerDate(Scene):
             b.gesture("laugh", t=10 + i, dur=1.4)
 
         # the couple
-        table(0, -0.4)
+        table(0, -0.4, hero=True)
         him = diner(0, -0.4, -1, WHITE, hair="short")
         her = diner(0, -0.4, 1, RED, build="woman", hair="long", outfit="dress")
         g_him = s.glass(at=(-0.2, -0.62, 0.75)); g_her = s.glass(at=(0.2, -0.18, 0.75))

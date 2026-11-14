@@ -71,7 +71,7 @@ class NightChase(Scene):
             s.path([(-165, c, 0.06), (165, c, 0.06)], width=0.18, color="#b4b4b4", flat=True, dash=55, glow=0.25, name="dash")
 
         def lamp(x, y, yaw):
-            s.lamp(at=(x, y), kind="street", h=6, power=700, rot=yaw)
+            s.lamp(at=(x, y), kind="street", h=6, power=700, rot=yaw, shadow=False)
 
         for k, y in enumerate((-130, -110, -90)):                       # leg 1: north on x = -G
             e = k % 2 == 0

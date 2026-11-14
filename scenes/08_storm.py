@@ -49,8 +49,8 @@ class Storm(Scene):
         sweep = s.group(at=LAMP)
         sweep.rotate_by((0, 0, 25 * 20), t=0, dur=20, ease="linear")
         bx, by = 100 * math.cos(math.radians(54.4)), 100 * math.sin(math.radians(54.4))
-        s.beam(at=(0, 0, 0), aim=(bx, by, -18), length=135, angle=7, color="#ffe9c0", parent=sweep)
-        s.beam(at=(0, 0, 0), aim=(-bx, -by, -18), length=135, angle=7, color="#ffe9c0", parent=sweep)
+        s.beam(at=(0, 0, 0), aim=(bx, by, -18), length=135, angle=7, color="#ffe9c0", parent=sweep, shadow=False)
+        s.beam(at=(0, 0, 0), aim=(-bx, -by, -18), length=135, angle=7, color="#ffe9c0", parent=sweep, shadow=False)
 
         # ------------------------------------------------------------ the boat
         WZ = 0.0

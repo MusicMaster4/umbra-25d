@@ -59,8 +59,8 @@
 - `plate(at=(0, 0, 0), r=0.13, **kw)`
 - `candle(at=(0, 0, 0), h=0.16, power=14.0, color='#ffb45e', t=0.0, shadow=False, **kw)`  
   Candle with a gently breathing flame and warm light. Returns the group; .flame, .light. shadow=True makes its light cast shadows (costs render time; use it on the hero candle only).
-- `lamp(at=(0, 0), kind='pendant', h=2.4, color='#ffd9a0', power=None, on=True, rot=0, **kw)`  
-  pendant (hangs from h) | floor | desk | street (modern, arm toward +Y) | gas (Victorian post lamp). power in watts (default per kind: 260 / 260 / 60 / 1500 / 420). Returns a group with .light and .bulb; rot turns the whole lamp.
+- `lamp(at=(0, 0), kind='pendant', h=2.4, color='#ffd9a0', power=None, on=True, rot=0, shadow=True, **kw)`  
+  pendant (hangs from h) | floor | desk | street (modern, arm toward +Y) | gas (Victorian post lamp). power in watts (default per kind: 260 / 260 / 60 / 1500 / 420). Returns a group with .light and .bulb; rot turns the whole lamp. shadow=False for background lamps (saves render time).
 - `door(at=(0, 0), w=0.9, h=2.05, rot=0, frame=True, **kw)`  
   Hinged door (hinge on its -X edge). .open(t, dur, angle) swings it.
 - `room(size=(6, 5), h=2.7, at=(0, 0), walls='nw', th=0.14, doors=(), windows=(), floor=None, rot=0, **kw)`  
@@ -142,7 +142,7 @@
   Flat ring on the ground. t=None -> static marker ring. Otherwise it expands from 0 to r and fades (repeat it for a radar / sonar ping); hold=True keeps it at full radius instead of fading.
 - `zone(pts, color=None, alpha=0.22, t=None, dur=0.6, z=0.02, outline=True, name='zone')`  
   Translucent area on the ground: pts = polygon [(x, y)...] or ((cx, cy), radius) for a circle.
-- `beam(at, aim, length=8.0, angle=28.0, color='#fff3cf', alpha=0.16, parent=None, light=True, power=600.0, name='beam')`  
+- `beam(at, aim, length=8.0, angle=28.0, color='#fff3cf', alpha=0.16, parent=None, light=True, power=600.0, shadow=True, name='beam')`  
   Visible cone of light (torch, searchlight, projector) + a real spot light. Parent it to what holds it.
 - `marker(at, color=None, size=1.0, t=None, name='marker')`  
   Map-pin style marker that drops in with a bounce.

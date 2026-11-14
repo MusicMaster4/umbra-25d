@@ -401,8 +401,9 @@ class Node:
                     if name == "glow" and tr.adds and not getattr(self, "_crisp", False):
                         vals = B.calm(vals, [float(tr.base(t)) for t in ts])
                     B.scalar(o, f'["{name}"]', vals, jumps=getattr(tr, "jumps", ()))
-        if self._vis_animated():
-            vals = [0.0 if self.eff_vis(t) else 1.0 for t in ts]
+        dark = getattr(self, "_dark", None)          # lights that are switched off are hidden, so they cost nothing
+        if self._vis_animated() or dark is not None:
+            vals = [0.0 if (self.eff_vis(t) and not (dark is not None and dark(t))) else 1.0 for t in ts]
             B.scalar(o, "hide_render", vals, const=True)
             o.hide_render = bool(vals[0])
         elif not self.eff_vis(0.0):
@@ -468,6 +469,10 @@ class LightNode(Node):
         return self
 
     def bake(self, B):
+        if self.power.animated:                      # a flash / explosion / lightning light only exists while it is lit
+            if self.power._starts is None:
+                self.power._prep()
+            self._dark = lambda t: float(self.power.at(t)) <= 1e-4
         super().bake(B)
         d = self.obj.data
         ts = B.times
