@@ -52,13 +52,13 @@ class CabinFight(Scene):
                    hand_l=None, hand_r=None, arm_l=(64, 4), arm_r=(64, 4), elbow_l=128, elbow_r=128)      # arms tucked in front, clear of the wall
 
         # the aircraft lurches
-        ship.rotate((-13, 24, 0), t=9.5, dur=1.3, ease="in").shake(0.05, t=9.4, dur=1.4, decay=False)
+        ship.rotate((-13, 24, 0), t=9.5, dur=1.3, ease="in").shake(0.05, t=9.4, dur=1.4, decay=False, freq=8)
         blue.pose("crouch", t=9.7, dur=0.5)
 
         s.cam.set(pos=(3.3, -3.4, 2.9), look=(-0.2, 0.3, 1.0), lens=30)
         s.cam.to(pos=(2.6, -1.9, 2.5), look=(0.0, 0.9, 1.1), lens=38, t=0, dur=6.5)
         s.cam.to(pos=(2.2, -1.0, 2.2), look=(0, 0.8, 1.0), roll=-7, t=6.5, dur=4.3, ease="in")
-        s.cam.shake(0.05, t=5.5, dur=0.4).shake(0.05, t=6.3, dur=0.4).shake(0.08, t=8.7, dur=0.5).shake(0.12, t=9.5, dur=1.3, decay=False)
+        s.cam.shake(0.05, t=5.5, dur=0.4).shake(0.05, t=6.3, dur=0.4).shake(0.08, t=8.7, dur=0.5).shake(0.12, t=9.5, dur=1.3, decay=False, freq=8)
 
         s.stamp("FLIGHT 417   FL310", t=0.5, out=CUT - 0.3)
         s.label(red.anchor("above"), "Seat 14D", t=2.0, out=4.4, offset=(150, -120), style="line")
@@ -67,7 +67,7 @@ class CabinFight(Scene):
         # ------------------------------------------------------------ shot 2: the dive
         route = [(0, 3000, 900), (0, 3260, 868), (0, 3500, 770), (0, 3700, 610), (0, 3850, 410), (0, 3960, 170)]
         jet = s.airliner(at=route[0]).show(CUT)
-        jet.follow(route, t=CUT - 1.0, dur=10.4, ease="in2").wobble(7, 0.6, axis="y", t=CUT).shake(0.5, t=CUT, dur=9.2, decay=False)
+        jet.follow(route, t=CUT - 1.0, dur=10.4, ease="in2").wobble(7, 0.6, axis="y", t=CUT).shake(0.5, t=CUT, dur=9.2, decay=False, freq=8)
         s.trail(jet, t0=CUT, t1=20, width=0.5, color=RED, dash=0)
         s.fire(jet.anchor("engine_r"), size=3.2, t=CUT, light=False, inherit=0.92)
         s.smoke(jet.anchor("engine_r"), size=2.4, t=CUT, n=44, color="#3d3d3d", rise=0.3, wind=(0, 0, 2), life=(1.6, 2.8), alpha=0.8)

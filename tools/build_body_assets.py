@@ -5,7 +5,8 @@
 
 For each body it: takes the base cage, faces it +Y, stands it on z=0 at 1.75 m, finds the joints by slicing the
 mesh, builds a 15-bone skeleton, skins it with Blender's automatic (bone heat) weights and writes
-body_<name>.npz = vertices, faces, per-vertex bone weights (top 4) and joint positions.
+body_<name>.npz = vertices, faces, per-vertex bone weights (top 4) and joint positions, plus body_<name>_lo.npz,
+a ~1.8k-triangle copy used for crowds.
 """
 import os
 import sys
@@ -152,6 +153,29 @@ def skin(v, faces, J, name):
     return W / W.sum(axis=1, keepdims=True)
 
 
+def lod(name, ratio):
+    """A light copy of a skinned body for crowds: collapse-decimated, weights carried over by Blender."""
+    ob = bpy.data.objects[name]
+    md = ob.modifiers.new("lod", "DECIMATE")
+    md.ratio = ratio
+    md.use_symmetry = True
+    md.symmetry_axis = "X"
+    while ob.modifiers[0] != md:                     # decimate the rest shape, before the armature
+        bpy.context.view_layer.objects.active = ob
+        bpy.ops.object.modifier_move_up(modifier=md.name)
+    me = ob.evaluated_get(bpy.context.evaluated_depsgraph_get()).to_mesh()
+    v = np.array([p.co for p in me.vertices], dtype=np.float64)
+    faces = [tuple(p.vertices) for p in me.polygons]
+    W = np.zeros((len(v), len(BONES)), dtype=np.float64)
+    gi = {g.index: BONES.index(g.name) for g in ob.vertex_groups if g.name in BONES}
+    for p in me.vertices:
+        for g in p.groups:
+            if g.group in gi:
+                W[p.index, gi[g.group]] = g.weight
+    W[W.sum(axis=1) < 1e-6, BONES.index("chest")] = 1.0
+    return v, faces, W / W.sum(axis=1, keepdims=True)
+
+
 def pack(v, faces, W, J, path):
     top = np.argsort(-W, axis=1)[:, :4]
     wt = np.take_along_axis(W, top, axis=1)
@@ -172,3 +196,5 @@ for src_name, out_name in (("GEO-body_male_realistic", "male"), ("GEO-body_femal
         print("JOINT", out_name, k, np.round(J[k], 3))
     W = skin(v, faces, J, out_name)
     pack(v, faces, W, J, os.path.join(OUT, "body_%s.npz" % out_name))
+    v2, f2, W2 = lod(out_name, 0.085)
+    pack(v2, f2, W2, J, os.path.join(OUT, "body_%s_lo.npz" % out_name))

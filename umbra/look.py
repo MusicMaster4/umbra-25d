@@ -60,6 +60,8 @@ class Look:
         for k, v in kw.items():
             if not hasattr(self, k):
                 raise TypeError(f"Look has no field {k!r}")
+            if k == "ambient" and isinstance(v, (int, float)):
+                k = "ambient_power"
             setattr(self, k, v)
 
     def but(self, **kw):
@@ -68,6 +70,8 @@ class Look:
         for k, v in kw.items():
             if not hasattr(o, k):
                 raise TypeError(f"Look has no field {k!r}; fields: {sorted(vars(o))}")
+            if k == "ambient" and isinstance(v, (int, float)):                  # a number means "how much", not "what colour"
+                k = "ambient_power"
             setattr(o, k, v)
         return o
 

@@ -32,7 +32,8 @@ HEAD_C = 0.172          # neck base -> head centre
 _LAYOUT = [("hips", 3), ("lift", 1), ("spine", 3), ("head", 3), ("arm_l", 3), ("arm_r", 3), ("elbow_l", 1),
            ("elbow_r", 1), ("leg_l", 3), ("leg_r", 3), ("knee_l", 1), ("knee_r", 1), ("foot_l", 1), ("foot_r", 1),
            ("hand_l", 5), ("hand_r", 5),             # x, y, z, weight, surface height (0 = free in the air)
-           ("ankle_l", 4), ("ankle_r", 4)]           # foot IK: (out, forward, height above the floor, weight), relative to the hip
+           ("ankle_l", 4), ("ankle_r", 4),           # foot IK: (out, forward, height above the floor, weight), relative to the hip
+           ("grip_l", 1), ("grip_r", 1)]             # fingers: 0 = open flat hand, 0.25 = relaxed, 1 = fist
 IDX, _n = {}, 0
 for _k, _c in _LAYOUT:
     IDX[_k] = slice(_n, _n + _c)
@@ -40,7 +41,8 @@ for _k, _c in _LAYOUT:
 NPOSE = _n
 
 _REST = {"arm_l": (-3, 7, 0), "arm_r": (-3, 7, 0), "elbow_l": 6, "elbow_r": 6, "leg_l": (0, 2.2, 0), "leg_r": (0, 2.2, 0),
-         "head": (-5, 0, 0), "spine": (-1.0, 0, 0)}          # the base mesh stands with its head a little forward
+         "head": (-5, 0, 0), "spine": (-1.0, 0, 0),          # the base mesh stands with its head a little forward
+         "grip_l": 0.28, "grip_r": 0.28}                     # a hand at rest is never flat: the fingers curl a little
 
 POSES = {
     "stand": {},
@@ -137,6 +139,19 @@ POSES = {
 }
 
 
+# How closed the hands are in each pose (left, right); anything not listed keeps the relaxed hand.
+for _k, _g in {"punch": (1, 1), "punch_l": (1, 1), "guard": (1, 1), "kick": (0.8, 0.8), "windup": (0.6, 0.6), "strike": (0.6, 0.6),
+               "hang": (0.9, 0.9), "run_pose": (0.7, 0.7), "carry": (0.5, 0.5), "drive": (0.8, 0.8), "phone": (0.28, 0.75),
+               "drink": (0.28, 0.75), "toast": (0.28, 0.75), "aim": (0.8, 0.9), "choke": (0.55, 0.55), "grab": (0.55, 0.55),
+               "think": (0.28, 0.6), "hands_hips": (0.45, 0.45), "arms_crossed": (0.4, 0.4), "cheer": (0.85, 0.85),
+               "push": (0.0, 0.0), "wave": (0.28, 0.0), "hands_up": (0.05, 0.05), "salute": (0.28, 0.0), "pray": (0.0, 0.0),
+               "tpose": (0.0, 0.0), "arms_open": (0.05, 0.05), "recoil": (0.1, 0.1), "cower": (0.1, 0.1), "dive": (0.05, 0.05),
+               "reach_up": (0.28, 0.1), "point": (0.28, 0.2), "point_up": (0.28, 0.2), "float": (0.15, 0.15), "fall": (0.1, 0.1)}.items():
+    if _k in POSES:
+        POSES[_k].setdefault("grip_l", _g[0])
+        POSES[_k].setdefault("grip_r", _g[1])
+
+
 def pose_vec(spec=None, base=None, mirror=False, **over):
     """dict / name -> pose vector (unspecified joints fall back to `base` or the rest stance)."""
     v = np.zeros(NPOSE) if base is None else np.array(base, dtype=float)
@@ -177,7 +192,7 @@ def _apply(v, d):
 
 def _mirror(v):
     o = v.copy()
-    for a in ("arm", "elbow", "leg", "knee", "foot", "hand", "ankle"):
+    for a in ("arm", "elbow", "leg", "knee", "foot", "hand", "ankle", "grip"):
         o[IDX[a + "_l"]], o[IDX[a + "_r"]] = v[IDX[a + "_r"]], v[IDX[a + "_l"]]
     for k in ("hand_l", "hand_r"):
         o[IDX[k].start] *= -1
@@ -265,6 +280,8 @@ def _gait_pose(G, cyc, env, amp, add, tt, seed, sk=None):
             if G.get("limp") and side == "r":
                 h *= 0.45
         add("ankle_" + side, (0.02 * k, y * k, h * k, k))
+        if flight:
+            add("grip_" + side, 0.4 * env)                 # runners close their hands
         add("foot_" + side, pitch * k)
         swing = -math.cos(2 * math.pi * ph)            # the arm opposes the leg on its own side
         add("arm_" + side, (G["arm"] * amp * swing * env, 0, 0))
@@ -402,13 +419,51 @@ def _qlerp(Ra, Rb, w):
                      [2 * (x * z - y * w_), 2 * (y * z + x * w_), 1 - 2 * (x * x + y * y)]])
 
 
-LIMITS = {"elbow_l": (0, 150), "elbow_r": (0, 150), "knee_l": (0, 150), "knee_r": (0, 150), "foot_l": (-55, 40), "foot_r": (-55, 40)}
+LIMITS = {"elbow_l": (0, 150), "elbow_r": (0, 150), "knee_l": (0, 150), "knee_r": (0, 150), "foot_l": (-55, 40), "foot_r": (-55, 40),
+          "grip_l": (0, 1), "grip_r": (0, 1)}
 LIMITS3 = {"head": ((-55, 55), (-40, 40), (-85, 85)), "spine": ((-35, 70), (-40, 40), (-50, 50))}
 
 
 def default_sk():
     from . import body
     return body.load("male")["sk"]
+
+
+def _axrot(axis, deg):
+    a = math.radians(deg)
+    K = np.array([[0.0, -axis[2], axis[1]], [axis[2], 0.0, -axis[0]], [-axis[1], axis[0], 0.0]])
+    m = np.eye(4)
+    m[:3, :3] = np.eye(3) + math.sin(a) * K + (1 - math.cos(a)) * (K @ K)
+    return m
+
+
+def _wrist(Q):
+    """Clamp a hand's rotation relative to its forearm to what a wrist can do, so a hand can never end up turned
+    the wrong way round: forearm twist (pronation / supination) within +-90 degrees of neutral, then the wrist's
+    own bend - up to 75 degrees of flexion / extension and 30 of side-to-side deviation."""
+    th = math.atan2(Q[1, 0] - Q[0, 1], Q[0, 0] + Q[1, 1])                     # twist about the forearm axis
+    c, s_ = math.cos(th), math.sin(th)
+    Tw = np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]])
+    Sw = Tw.T @ Q                                                             # what is left: a bend about an axis in the palm plane
+    ang = math.acos(max(-1.0, min(1.0, (np.trace(Sw) - 1.0) / 2.0)))
+    r = np.zeros(3)
+    if ang > 1e-6:
+        ax = np.array([Sw[2, 1] - Sw[1, 2], Sw[0, 2] - Sw[2, 0], 0.0])
+        n = float(np.linalg.norm(ax))
+        if n > 1e-9:
+            r = ax / n * ang
+    over = math.hypot(r[0] / math.radians(30.0), r[1] / math.radians(75.0))  # x = deviation, y = flexion / extension
+    if over > 1.0:
+        r = r / over
+    th = min(max(th, -math.pi / 2), math.pi / 2)
+    c, s_ = math.cos(th), math.sin(th)
+    Tw = np.array([[c, -s_, 0.0], [s_, c, 0.0], [0.0, 0.0, 1.0]])
+    ang = float(np.linalg.norm(r))
+    if ang < 1e-9:
+        return Tw
+    k = r / ang
+    K = np.array([[0.0, -k[2], k[1]], [k[2], 0.0, -k[0]], [-k[1], k[0], 0.0]])
+    return Tw @ (np.eye(3) + math.sin(ang) * K + (1 - math.cos(ang)) * (K @ K))
 
 
 def solve_pose(v, sk=None, world=None, reach=None, look=None):
@@ -477,9 +532,13 @@ def solve_pose(v, sk=None, world=None, reach=None, look=None):
             T = fk_hand + (wrist - fk_hand) * min(w, 1.0)
             b = L_FARM
             pole = norm(np.array([sgn * 0.9, -0.45, 0.12]))
-            zc = -(rc.T @ fw)
-            xc = rc.T @ np.array([0, 0, 1.0])
-            hand_rot = np.column_stack([xc, np.cross(zc, xc), zc])            # hand's own axes, in chest space
+            zc = -(rc.T @ fw)                                                 # fingers run along the hand's -Z
+            xc = rc.T @ np.array([0, 0, sgn])                                 # the palm is the hand's -X on the right and +X
+            hand_rot = np.column_stack([xc, np.cross(zc, xc), zc])            # on the left: it faces DOWN, thumbs inward
+            if getattr(sk, "fingers", None):
+                hand_rot = hand_rot @ sk.fingers[side]["fix"]                 # ... measured on this body's real palm
+        ks = min(w, 1.0)                                                      # how much the palm is on its surface
+        ks = ks * ks * (3 - 2 * ks)
         if reach and side in reach and reach[side][1] > 1e-3 and chest_w is not None:
             tw, ww = reach[side]
             loc = (np.linalg.inv(chest_w) @ np.append(tw, 1.0))[:3]
@@ -498,10 +557,18 @@ def solve_pose(v, sk=None, world=None, reach=None, look=None):
         F = tr((0, 0, -L_UARM)) @ rx(flex)
         M["farm_" + side] = F
         Hd = tr((0, 0, -L_FARM))
-        if hand_rot is not None and k > 0:
+        if hand_rot is not None and ks > 0:
             fore = Ru @ _r3(rx(flex))                                         # forearm axes in chest space
-            Hd[:3, :3] = _qlerp(np.eye(3), fore.T @ hand_rot, k)
+            Hd[:3, :3] = _qlerp(np.eye(3), _wrist(fore.T @ hand_rot), ks)
         M["hand_" + side] = Hd
+        # fingers: the knuckles and the middle joints fold together; a palm lying on a surface opens flat
+        fg = sk.fingers[side] if getattr(sk, "fingers", None) else None
+        if fg is None:
+            M["fing_" + side] = M["tip_" + side] = np.eye(4)
+        else:
+            g = min(max(float(v[IDX["grip_" + side]][0]), 0.0), 1.0) * (1.0 - (ks if hand_rot is not None else 0.0))
+            M["fing_" + side] = tr(fg["p1"]) @ _axrot(fg["axis"], 78.0 * g)
+            M["tip_" + side] = tr(fg["p2"] - fg["p1"]) @ _axrot(fg["axis"], 96.0 * g)
         # ---- leg
         Hp = np.array([sgn * sk.hip[0], sk.hip[1], sk.hip[2]])
         Rt = _limb_rot(v[IDX["leg_" + side]], sgn)
@@ -564,8 +631,10 @@ def solve_pose(v, sk=None, world=None, reach=None, look=None):
 PARENT = {"pelvis": None, "chest": "pelvis", "head": "chest"}
 for _s in "lr":
     PARENT.update({"uarm_" + _s: "chest", "farm_" + _s: "uarm_" + _s, "hand_" + _s: "farm_" + _s,
-                   "thigh_" + _s: "pelvis", "shin_" + _s: "thigh_" + _s, "foot_" + _s: "shin_" + _s})
-ORDER = ["pelvis", "chest", "head"] + [p + s for s in ("_l", "_r") for p in ("uarm", "farm", "hand", "thigh", "shin", "foot")]
+                   "thigh_" + _s: "pelvis", "shin_" + _s: "thigh_" + _s, "foot_" + _s: "shin_" + _s,
+                   "fing_" + _s: "hand_" + _s, "tip_" + _s: "fing_" + _s})
+ORDER = (["pelvis", "chest", "head"] + [p + s for s in ("_l", "_r") for p in ("uarm", "farm", "hand", "thigh", "shin", "foot")]
+         + ["fing_l", "tip_l", "fing_r", "tip_r"])
 
 
 def to_root(M):
@@ -594,13 +663,12 @@ def _ring(z, hw, hd, n=16, y=0.0, p=2.0, x=0.0):
 def extras(sk, build="man", hair="short", hat=None, outfit=None):
     """-> {bone: Mesh} of rigid add-ons in bone-local space."""
     hs = 1.22 if build == "child" else 1.0
-    c = sk.head_c[2] * hs
+    c = sk.skull[2] * hs                                                  # hats sit on the measured skull, not on a guess
     P = {}
     hm = Mesh()
-    _hair(hm, hair, hs, c)
     _hat(hm, hat, hs, c)
     if hm.v:
-        P["head"] = Mesh().add(hm, at=(0, sk.head_c[1] * hs, 0))
+        P["head"] = Mesh().add(hm, at=(0, sk.skull[1] * hs, 0))
     LT, LS, LU, LF = sk.L_THIGH, sk.L_SHIN, sk.L_UARM, sk.L_FARM
     for side in "lr":
         if outfit in ("dress", "skirt", "gown", "robe"):                 # A-line with a flat hem, one cone per thigh
@@ -626,46 +694,6 @@ def extras(sk, build="man", hair="short", hat=None, outfit=None):
     if outfit == "backpack":
         P["chest"] = Mesh().box((0.3, 0.15, 0.4), at=(0, -0.2, 0.2), bevel=0.03)
     return P
-
-
-def _hair(m, hair, hs, c):
-    if hair in (None, "bald", "none"):
-        return
-    if hair in ("short", "long", "bob", "bun", "pony"):
-        m.sphere(0.105 * hs, at=(0, -0.008, c + 0.024), scale=(0.8, 1.0, 1.06), seg=20)                    # cap following the skull
-    if hair == "short":
-        m.sphere(0.05 * hs, at=(0, 0.03 * hs, c + 0.1 * hs), scale=(1.1, 1.0, 0.45), seg=12)               # a little lift at the front
-        m.sphere(0.07 * hs, at=(0, -0.06 * hs, c - 0.03 * hs), scale=(0.9, 0.6, 0.9), seg=12)              # nape
-    elif hair == "long":
-        m.loft([_ring(c - 0.27, 0.07 * hs, 0.022, n=14, y=-0.082), _ring(c - 0.17, 0.088 * hs, 0.036, n=14, y=-0.072),
-                _ring(c - 0.06, 0.094 * hs, 0.05, n=14, y=-0.05), _ring(c + 0.03, 0.088 * hs, 0.07, n=14, y=-0.03)])
-    elif hair == "bob":
-        m.loft([_ring(c - 0.115, 0.1 * hs, 0.072, n=14, y=-0.03, p=2.4), _ring(c - 0.05, 0.096 * hs, 0.085, n=14, y=-0.024),
-                _ring(c + 0.03, 0.088 * hs, 0.09, n=14, y=-0.018)])
-    elif hair == "bun":
-        m.sphere(0.05 * hs, at=(0, -0.082, c + 0.112), seg=12)
-    elif hair == "pony":
-        m.capsule(0.036, 0.014, 0.21, at=(0, -0.1, c + 0.07), rot=(-26, 0, 0), seg=10)
-    elif hair == "curly":
-        rng = np.random.default_rng(3)
-        for i in range(22):
-            a = rng.uniform(0, 2 * math.pi)
-            e = rng.uniform(-0.3, 1.0)
-            r = 0.09 * hs
-            q = (r * math.cos(a) * math.cos(e) * 0.86, -0.014 + r * math.sin(a) * math.cos(e) * 1.02, c + 0.035 + r * math.sin(e) * 1.08)
-            if q[1] > 0.05 and q[2] < c + 0.06:
-                continue
-            m.sphere(rng.uniform(0.032, 0.046) * hs, at=q, seg=10)
-    elif hair == "afro":
-        m.sphere(0.15 * hs, at=(0, -0.02, c + 0.055), scale=(0.94, 0.96, 0.95), seg=20)
-    elif hair == "spiky":
-        m.sphere(0.104 * hs, at=(0, -0.01, c + 0.024), scale=(0.8, 1.0, 1.06), seg=18)
-        for i in range(7):
-            a = -60 + i * 20
-            m.cone(0.03, 0.085, at=(0, -0.01 + 0.085 * math.sin(math.radians(a)), c + 0.1 * math.cos(math.radians(a)) + 0.02),
-                   rot=(-a, 0, 0), seg=8)
-    elif hair == "mohawk":
-        m.extrude([(-0.11, 0), (-0.09, 0.07), (0.0, 0.1), (0.09, 0.075), (0.11, 0.0)], 0.026, at=(-0.013, 0, c + 0.085), rot=(90, 0, 90))
 
 
 def _hat(m, hat, hs, c):
@@ -714,16 +742,26 @@ def rest_mats(sk):
     return to_root(solve_pose(v, sk))
 
 
-def assemble(build="man", hair="short", hat=None, outfit=None):
-    """-> (verts, faces, W, bones, sk, rest): a dressed body with its add-ons, in the rest stance, plus skin weights."""
+def assemble(build="man", hair="short", hat=None, outfit=None, lod=False, bare=False):
+    """-> (verts, faces, W, bones, sk, rest): a dressed body with its add-ons, in the rest stance, plus skin weights.
+    lod=True: the light body without clothing shells (crowds - hundreds of figures in one mesh)."""
     from . import body
-    key = (build, hair, hat, outfit)
+    key = (build, hair, hat, outfit, lod, bare)
     if key not in _ASM:
-        b = body.load(body.BUILD_BODY.get(build, "male"))
+        b = body.load(body.BUILD_BODY.get(build, "male"), lod)
         sk, bones = b["sk"], b["bones"]
-        v, faces, W = body.dressed(b, body.shaped(b, build))
+        sv = body.shaped(b, build)
+        v, faces, W = body.dressed(b, sv, outfit=not (lod or bare))     # clothing shells only matter for a flat outline
         rest = rest_mats(sk)
         vs, ws, base = [v], [W], len(v)
+        hr = body.hair(b, sv, hair, 1.22 if build == "child" else 1.0)      # grown from this head's own scalp
+        if hr is not None:
+            one = np.zeros((len(hr[0]), len(bones)))
+            one[:, bones.index("head")] = 1.0
+            vs.append(hr[0])
+            ws.append(one)
+            faces = faces + [tuple(base + i for i in f) for f in hr[1]]
+            base += len(hr[0])
         for part, m in extras(sk, build, hair, hat, outfit).items():
             if not m.v:
                 continue
@@ -738,10 +776,10 @@ def assemble(build="man", hair="short", hat=None, outfit=None):
     return _ASM[key]
 
 
-def figure_mesh(pose="stand", build="man", hair="short", hat=None, outfit=None, **over):
-    """A whole figure frozen in a pose as ONE Mesh (statues, crowds, background extras)."""
+def figure_mesh(pose="stand", build="man", hair="short", hat=None, outfit=None, lod=False, **over):
+    """A whole figure frozen in a pose as ONE Mesh (statues, crowds, background extras). lod=True = light body."""
     from . import body
-    v, faces, W, bones, sk, rest = assemble(build, hair, hat, outfit)
+    v, faces, W, bones, sk, rest = assemble(build, hair, hat, outfit, lod)
     R = to_root(solve_pose(pose_vec(pose, **over), sk))
     T = {b: R[b] @ np.linalg.inv(rest[b]) for b in bones}
     out = Mesh()
@@ -754,7 +792,7 @@ def _bpy_body(scene, key):
     cache = scene.__dict__.setdefault("_bodies", {})
     if key not in cache:
         import bmesh
-        v, faces, W, bones, sk, rest = assemble(*key[:4])
+        v, faces, W, bones, sk, rest = assemble(*key[:4], bare=key[4] not in ("flat", "fill"))
         m = Mesh()
         m._add(v, faces, smooth=True)
         me = m.build("body_" + "_".join(str(k) for k in key if k))
@@ -1225,8 +1263,8 @@ class Person(Node):
 
     def _act_facepalm(self, t, dur):
         d = dur or 2.0
-        self._seq(t, [(0.36 * d, None, dict(hand_r=(0.03, 0.15, 0.52), head=(20, 0, 0), spine=(8, 0, 0)), "out2"), (0.34 * d, None, {}, None)], back=0.3 * d)
-        self.gesture("shake", t + 0.3 * d, 0.36 * d, amount=0.4)
+        self._seq(t, [(0.36 * d, None, dict(hand_r=(0.03, 0.15, 0.52), head=(20, 0, 0), spine=(8, 0, 0)), "out2"), (0.28 * d, None, {}, None)], back=0.36 * d)
+        self.gesture("shake", t + 0.3 * d, 0.34 * d, amount=0.4)
 
     def _act_point(self, t, dur, target=None):
         d = dur or 1.8
@@ -1478,6 +1516,7 @@ class Person(Node):
         hand = self.part["hand_" + side]
         node.parent_to(hand)
         node.at(pos=at, rot=rot)
+        self.layers.append((-1e9, 1e9, lambda tt, add, k="grip_" + side: add(k, 0.45)))      # the fingers close around it
         node.scl.set(node.scl.default / (self.height / 1.75))       # keep the prop's real size on scaled figures
         self.allow(node)
         if upright:

@@ -303,7 +303,8 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                     pts.append(q)
         else:
             pts = list(area)
-        variants = [figure_mesh(pz, build=b, hair=h) for pz in poses for b, h in (("man", "short"), ("woman", "long"), ("slim", "bob"))]
+        variants = [figure_mesh(pz, build=b, hair=h, lod=len(pts) > 12)          # big crowds use the light body
+                    for pz in poses for b, h in (("man", "short"), ("woman", "long"), ("slim", "bob"))]
         m = Mesh()
         for q in pts:
             v = variants[int(rng.integers(len(variants)))]

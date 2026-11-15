@@ -6,7 +6,8 @@ For every gait style and every p.act(...) template it samples the skeleton at 60
   * peak angular speed and the largest frame-to-frame change in that speed ("snap") - a pop shows up as a huge snap;
   * how fast the body is still moving in the first and last frames of the clip (ease-in / ease-out);
   * joint limits (elbows and knees must stay inside 0-150 degrees, i.e. they only fold the anatomical way);
-  * the lowest point of the feet (must not sink below the floor).
+  * the lowest point of the feet (must not sink below the floor);
+  * hands: palms resting on a table face down on both sides, and wrists stay inside their anatomical range.
 Anything out of bounds is printed as FAIL; the last line is a summary.
 """
 import math
@@ -94,4 +95,29 @@ class MotionAudit(Scene):
             fails += bool(problems)
             s.log(("FAIL " if problems else "ok   ") + f"{name:<18} peak {peak:5.1f} deg/f  snap {snap:4.1f}  start {first:4.1f}  end {last:4.1f}  "
                   + "; ".join(problems))
+        # Hands: a palm resting on a table must face DOWN on both sides (thumbs inward), for every body, and in every
+        # library pose the wrist must stay inside its anatomical range (it is clamped in the solver - this proves it).
+        from umbra.people import POSES, pose_vec, solve_pose
+        bad = 0
+        for i, build in enumerate(("man", "woman", "slim", "heavy", "child")):
+            p = s.person(at=(i * 3.0, -18), idle=0, build=build).sit(table=0.75)
+            R = to_root(p.solve(0.5))
+            w = p.matrix(0.5)
+            for side, sg in (("l", -1.0), ("r", 1.0)):
+                palm = -(w @ R["hand_" + side])[:3, :3] @ p.sk.fingers[side]["fix"].T @ np.array([sg, 0.0, 0.0])
+                palm = palm / np.linalg.norm(palm)
+                if palm[2] > -0.9:
+                    bad += 1
+                    s.log(f"FAIL palm on table: {build} hand_{side} faces {np.round(palm, 2)} (should face down)")
+        sk = p.sk
+        for name in POSES:
+            M = solve_pose(pose_vec(name), sk)
+            for side in "lr":
+                Q = M["hand_" + side][:3, :3]
+                tw = abs(math.degrees(math.atan2(Q[1, 0] - Q[0, 1], Q[0, 0] + Q[1, 1])))
+                bend = math.degrees(math.acos(max(-1.0, min(1.0, Q[2, 2]))))
+                if tw > 91 or bend > 76:
+                    bad += 1
+                    s.log(f"FAIL wrist out of range in pose {name}: hand_{side} twist {tw:.0f} bend {bend:.0f}")
+        s.log(f"HAND AUDIT: {'clean' if not bad else str(bad) + ' problems'}")
         s.log(f"MOTION AUDIT: {len(clips) - fails}/{len(clips)} clips clean")

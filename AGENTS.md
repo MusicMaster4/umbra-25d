@@ -148,9 +148,12 @@ p = s.person(at=(x, y), color=RED, pose="stand", heading=0, face=(x, y),
   guard punch punch_l kick (martial) windup strike (football) dive recoil choke grab cower aim salute pray hang
   float fall run_pose dance hug toast`. Lying poses (`lie`, `sprawl`): feet toward the heading, head away from it.
 - The figures are real skinned human bodies; elbows and knees are hinges clamped to 0–150°, and a sole that would
-  go through the person's own floor is held on it (so `lift`, seats and crouches can't sink the feet).
+  go through the person's own floor is held on it (so `lift`, seats and crouches can't sink the feet). Wrists are
+  clamped to what a wrist can do, palms on a surface always face down, and hair is grown from the head's own scalp
+  (it follows the skull — no caps or bumps).
 - joints (degrees, + = forward / outward / up / flexed): `hips spine head (fwd, side, twist)`, `arm_l arm_r leg_l
-  leg_r (fwd, out, twist)`, `elbow_l elbow_r knee_l knee_r`, `foot_l foot_r`, `lift` (m), and
+  leg_r (fwd, out, twist)`, `elbow_l elbow_r knee_l knee_r`, `foot_l foot_r`, `lift` (m), `grip_l grip_r` (fingers:
+  0 = open flat hand, 0.28 = relaxed default, 1 = fist; fists, held props and runners close by themselves), and
   `hand_l hand_r=(x, y, z)` — hand IK target in chest space (x right, y forward, z up from the waist); add a 4th
   value `(x, y, z, surface_height)` to rest the palm flat on a surface that high above the person's floor.
 - `p.sit(t, seat=0.46, pose="sit", step=0, table=None)` — seated from the start: put the person **at** the seat,
@@ -174,7 +177,8 @@ p = s.person(at=(x, y), color=RED, pose="stand", heading=0, face=(x, y),
   centre is `p.sk.head_c` above it (about 0.12 m) — or position things with `p.anchor("head")`
 - anchors: `p.anchor("head|above|face|chest|hips|hand_l|hand_r|foot_l|foot_r|feet")`
 - extras: `s.figure(at, pose, ...)` (frozen one-mesh statue) · `s.crowd(n, area=((x0,y0),(x1,y1)) | [points],
-  face=, poses=, z=, color=, mat=)` — one frozen mesh; to make it react, build a second crowd and swap with show/hide.
+  face=, poses=, z=, color=, mat=)` — one frozen mesh (crowds over 12 use a light body, so hundreds are cheap); to
+  make it react, build a second crowd and swap with show/hide.
 
 ## Camera (`s.cam`)
 
@@ -209,7 +213,7 @@ minor ones (kit candles already do).
 
 ## Kit (props; all take `at`, `rot`, `color`, `mat`; `python -m umbra api <name>` for options)
 
-furniture: `chair stool table(size, round=, cloth=) desk(monitor=) sofa bed shelf(size, levels, boxes) crate crates
+furniture: `chair stool table(at, size=, round=, cloth=) desk(monitor=) sofa bed shelf(size, levels, boxes) crate crates
 barrel plant bottle glass plate candle` · `lamp(kind="pendant|floor|desk|street|gas", power=)` (→ `.light`, `.bulb`) ·
 `door` (→ `.open(t)`)
 architecture: `room(size, h, walls="nw", doors=[("n", offset_from_centre, width)], windows=[...], floor=)` (leave out
