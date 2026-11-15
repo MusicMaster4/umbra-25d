@@ -176,7 +176,7 @@ class NightChase(Scene):
         cam.follow(chase, offset=(0, 0, 0), t=6.0, dur=3.4)
         cam.cut(9.4, pos=tuple(lead(9.4)), look=car.anchor((0, 0, 0.8)), lens=35)      # 3. leading, police behind
         cam.follow(lead, offset=(0, 0, 0), t=9.4, dur=3.9)
-        cam.shake(0.07, t=6.0, dur=7.3, decay=False, freq=10)
+        cam.shake(0.05, t=6.0, dur=7.3, decay=False, freq=4)
 
         cam.cut(13.3, pos=(-16, 41, 21), look=(-51.5, 40.5, 0.5), lens=52)             # 4. high, down the street
         cam.push(0.16, t=13.3, dur=6.7, ease="out")

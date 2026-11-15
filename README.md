@@ -92,7 +92,7 @@ The loop is built to be cheap in tokens:
 | check a moment | `python -m umbra sheet scene.py -t 4.2 -t 4.6 -t 5.0` | one image |
 | check detail | `python -m umbra still scene.py -t 6.5` | one 1080p frame |
 | check without rendering | `python -m umbra lint scene.py` | text only, no GPU, ~5 s |
-| deliver | `python -m umbra render scene.py` | mp4; the ten films here took 3–20 min each (median 7) at 1080p on an RTX 3070 |
+| deliver | `python -m umbra render scene.py` | mp4; the eleven films here took 3–21 min each (median 9) at 1080p on an RTX 3070 |
 
 <p align="center"><img src="docs/media/sheet.jpg" alt="A contact sheet" width="100%"><br>
 <sub>What an agent looks at: one contact sheet of the whole timeline.</sub></p>
