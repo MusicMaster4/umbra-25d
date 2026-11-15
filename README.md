@@ -149,6 +149,9 @@ rings, zones and light beams. Particles are analytic, so any frame can be render
 | clipping | props are solid unless created with `solid=False`; walks route around furniture; hands rest *on* table tops; `lint` flags who passes through what, when, where and from which line of the scene, and circles the spot in magenta on the contact sheet — the agent then fixes it or declares it intended |
 | sliding or sinking feet | gaits pin the stance foot by IK; in any pose a sole that would pass through the floor is held on it; a walk asked to go too fast becomes a run |
 | joints bending the wrong way | elbows and knees are clamped to 0–150°, spine and neck to human ranges |
+| hands turned the wrong way | wrists are clamped to a wrist's range (±90° forearm twist, 75° bend); a palm on a surface faces down on both sides, measured on each body; the audit checks it |
+| stiff, splayed hands | fingers have their own joints: relaxed by default, fists for punches and runs, closed around held props, flat on a table |
+| hair that floats or bulges | hair is a shell grown from the head's own scalp, so it follows the skull whatever the build |
 | motion pops | actions are C1 curves through their key poses; the motion audit measures it |
 | labels off-screen, camera under the floor | labels are clamped; the preflight warns |
 
