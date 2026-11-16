@@ -388,6 +388,28 @@ def run(a):
     if mode == "info":
         print("UMBRA_INFO " + json.dumps(_info(cls)))
         return
+    if mode == "physics":
+        from umbra import physics
+        n = int(round(float(cls.duration) * fps))
+        f0, f1 = 1, n
+        if a.get("range"):
+            f0, f1 = int(round(a["range"][0] * fps)) + 1, min(n, int(round(a["range"][1] * fps)))
+        coarse = list(range(f0, f1 + 1, max(1, int(round(fps / float(a.get("fps", 10)))))))
+        s = cls(quality=LINT_Q, frames=coarse, checks=False, capture=True, measure=True)
+        s.build()
+        s._finalize()
+        rows, info = physics.measure(s, s.baker)
+        hot = {r["t"] for r in rows if r["value"] > 0.5 * r["limit"]}  # every frame around the worst moments
+        dense = sorted({f for t in hot for f in range(max(f0, int(round((t - 0.25) * fps)) + 1), min(f1, int(round((t + 0.25) * fps)) + 1) + 1)}
+                       - set(coarse))[:400]
+        if dense:
+            rows2, info2 = physics.measure(s, s.rebake(dense).baker, hover=False)
+            rows = physics.merge(rows, rows2)
+            info["samples"] += info2["samples"]
+        else:
+            rows = physics.merge(rows, [])
+        print("UMBRA_PHYS " + json.dumps(dict(rows=rows, info=info, name=cls.__name__, fps=fps)))
+        return
     if mode == "live_bake":
         return _live_bake(cls, a)
     if mode == "live":

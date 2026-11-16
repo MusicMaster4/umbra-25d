@@ -148,6 +148,13 @@ class Node:
             self.__dict__.setdefault("_allowed_through", set()).update(id(n) for n in nodes)
         return self
 
+    def rests_on(self, surface=None, t=0.0, out=None, tol=0.02):
+        """Declare that this thing lies or stands on `surface` (a Node: a truck bed, a jetty, a terrain mesh; None = the
+        ground) from t until out (None = the end). lint then flags it when its lowest point floats more than `tol`
+        metres above the surface, or sinks more than that into it. Works on a group too (an imported model, a rig)."""
+        self.__dict__.setdefault("_rests", []).append((surface, float(t), None if out is None else float(out), float(tol)))
+        return self
+
     def drive(self, pos=None, rot=None, scale=None):
         """Drive the transform with functions of time: node.drive(pos=lambda t: (x, y, z), rot=lambda t: (p, r, yaw)).
         Use it for anything the presets don't cover (orbits, physics you computed, synced mechanisms)."""

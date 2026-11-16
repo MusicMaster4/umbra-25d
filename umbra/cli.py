@@ -247,6 +247,48 @@ def cmd_lint(a):
     print(f"lint: {n} flag{'s' if n != 1 else ''}" + ("" if n else " - clean") + f"  ({time.time() - t0:.0f}s)")
 
 
+def cmd_physics(a):
+    """Measure contact and collision on the posed meshes for the whole film; table + JSON; exit code 2 if over a limit."""
+    from umbra import physics                                      # (text formatting only: no Blender needed here)
+    scene = os.path.abspath(a.scene)
+    d = _outdir(a)
+    t0 = time.time()
+    rc, lines, err = run_blender({"mode": "physics", "scene": scene, "cls": a.cls, "fps": a.fps, "range": a.range})
+    if rc != 0:
+        _fail(err)
+    rep = next((json.loads(ln[len("UMBRA_PHYS "):]) for ln in lines if ln.startswith("UMBRA_PHYS ")), None)
+    if rep is None:
+        sys.exit("umbra: the physics pass returned nothing")
+    txt = physics.text(rep["rows"], rep["info"], _stem(scene))
+    base = os.path.join(d, _stem(scene) + "_physics")
+    with open(base + ".json", "w", encoding="utf-8") as fh:
+        json.dump(rep, fh, indent=1)
+    with open(base + ".txt", "w", encoding="utf-8") as fh:
+        fh.write(txt + "\n")
+    print(txt)
+    flagged = [r for r in rep["rows"] if r["status"] != "ok"]
+    times = []
+    for r in flagged:
+        if all(abs(r["t"] - t) > 0.15 for t in times):
+            times.append(round(r["t"], 2))
+    times = sorted(times[:10])
+    print(f"\nreport: {base}.txt / .json  ({time.time() - t0:.0f}s)")
+    if times and a.stills:
+        outs = [os.path.join(d, f"{_stem(scene)}_physics_{t:06.2f}s.png") for t in times]
+        rc, lines, err = run_blender({"mode": "still", "scene": scene, "cls": a.cls, "quality": "final", "times": times, "outs": outs,
+                                      "engine": a.engine})
+        if rc != 0:
+            _fail(err)
+        print("full-size frames of the worst moments:")
+        for o in outs:
+            print("  " + o)
+    elif times:
+        print("look at them: python -m umbra sheet " + a.scene + " " + " ".join(f"-t {t:g}" for t in times) + " --scale 0.5 --cols 3"
+              "   (or add --stills for full-size frames)")
+    if any(r["status"] == "FAIL" for r in rep["rows"]):
+        sys.exit(2)
+
+
 def cmd_blend(a):
     scene = os.path.abspath(a.scene)
     out = os.path.abspath(a.out or os.path.join(_outdir(a), _stem(scene) + ".blend"))
@@ -680,6 +722,13 @@ def main(argv=None):
     p = sub.add_parser("lint", help="build + preflight checks only (clipping, ground, lights) - no rendering, no GPU")
     common(p)
     p.set_defaults(fn=cmd_lint)
+
+    p = sub.add_parser("physics", help="measure contact and collision on every moving mesh, frame by frame (report + exit code)")
+    common(p)
+    p.add_argument("--fps", type=float, default=10.0, help="samples per second for the first pass (default 10)")
+    p.add_argument("--range", type=float, nargs=2, metavar=("T0", "T1"), help="only this time span (seconds)")
+    p.add_argument("--stills", action="store_true", help="also render a full-size frame of each flagged moment")
+    p.set_defaults(fn=cmd_physics)
 
     p = sub.add_parser("blend", help="export an editable .blend")
     common(p)

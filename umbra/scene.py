@@ -66,7 +66,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
     seed = 7
 
     # ------------------------------------------------------------------ setup
-    def __init__(self, quality="final", frames=None, film=False, checks=True, capture=False):
+    def __init__(self, quality="final", frames=None, film=False, checks=True, capture=False, measure=False):
         """frames: the frame numbers to bake (None = the whole film). film=True: `frames` is one chunk of a film render
         (see Baker). checks: True = run the clipping / staging checks on these frames, False = skip them (a render's
         frame jobs: one separate process checks the whole film instead), "film" = run them on the whole film."""
@@ -81,6 +81,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         self._nodes, self._cuts, self._people, self._post, self._live = [], [], [], [], []
         self._frames = frames
         self._film, self._checks, self._capture = bool(film), checks, bool(capture)
+        self._measure = bool(measure)                  # the physics pass: keep every mesh's faces wound outward
 
         bpy.ops.wm.read_factory_settings(use_empty=True)
         self.bscene = bpy.context.scene
@@ -148,7 +149,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         name = name or "obj"
         if isinstance(mesh, Mesh):
             # (the live renderer neither culls nor shades unlit things, so their winding does not need fixing)
-            me = mesh.build(name, ink=bool(ink), ink_color=L.ink_color, outward=not (self._capture and mat in FLAT_MATS and not ink))
+            me = mesh.build(name, ink=bool(ink), ink_color=L.ink_color, outward=not (self._capture and not getattr(self, "_measure", False) and mat in FLAT_MATS and not ink))
         else:
             me = mesh
             ink = False
@@ -813,6 +814,259 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         if len(rows) > 8:
             self.warn(f"clipping: ...and {len(rows) - 8} more overlaps")
 
+    # ------------------------------------------------------------------ meshes that deform or come from outside
+    def _ground_surfaces(self):
+        """Static meshes that are ground whatever their `solid` flag says: lit height fields at least 6 m across
+        (every face looks up). -> [(node, inverse matrix, matrix, world lo, world hi)]"""
+        out = []
+        for n in self._mesh_nodes():
+            if getattr(n, "is_ground", False) or getattr(n, "mat", None) in FLAT_MATS or getattr(n, "mat", None) == "glass":
+                continue
+            if not self._static(n) or float(n.alpha.default) < 0.5 or not n.eff_vis(0.0):
+                continue
+            c, r, lo, hi = self._bounds(n)
+            if r > 3000 or min(hi[0] - lo[0], hi[1] - lo[1]) < 6.0:
+                continue
+            me = n.obj.data
+            nz = np.empty(len(me.polygons) * 3, dtype=np.float32)
+            me.polygons.foreach_get("normal", nz)
+            m = n.matrix(0.0)
+            if not len(nz) or float((nz.reshape(-1, 3) @ m[2, :3]).min()) < 0.15:
+                continue
+            pts = np.array([[x, y, z] for x in (lo[0], hi[0]) for y in (lo[1], hi[1]) for z in (lo[2], hi[2])]) @ m[:3, :3].T + m[:3, 3]
+            out.append((n, np.linalg.inv(m), m, pts.min(axis=0), pts.max(axis=0)))
+        return out
+
+    def _mesh_check(self, frames):
+        """Meshes the people checks do not cover: anything on a Blender armature (an imported, rigged animal) and
+        imported models that move. Their real vertices - posed, for every sampled moment - are tested against the
+        ground (the floor, s.ground_z, terrain meshes), against solids, and against what they were declared to
+        rest on (node.rests_on). A mini bake of the film at 5 samples a second supplies the poses."""
+        from mathutils import Vector
+        from .bake import Capture
+        from .live import _Eval, _rig_skin, _armature_of
+        node_of = {n.obj.as_pointer(): n for n in self._nodes if n.obj is not None}
+
+        def up(n):
+            out = []
+            while n is not None:
+                out.append(n)
+                n = n.parent
+            return out
+        subjects = []
+        for o in self.bscene.objects:
+            if o.type != "MESH" or len(o.data.vertices) == 0 or (o.hide_render and o.as_pointer() not in node_of):
+                continue
+            n = node_of.get(o.as_pointer())
+            own, q = n, o
+            while own is None and q.parent is not None:
+                q = q.parent
+                own = node_of.get(q.as_pointer())
+            if own is None:
+                continue
+            ch = up(own)
+            if any(type(a).__name__ in ("Person", "PartNode", "Particle") or a.is_overlay or getattr(a, "_ballistic", False)
+                   or getattr(a, "is_ground", False) for a in ch):
+                continue
+            rests = [r for a in ch for r in getattr(a, "_rests", ())]
+            arm = _armature_of(o)
+            foreign = n is None and not self._static(own)                # a model from outside that moves
+            if arm is None and not foreign and not rests:
+                continue
+            checked = all(getattr(a, "solid", True) for a in ch) and (n is None or (
+                getattr(n, "mat", None) not in ("beam", "water", "sky", "stroke", "glass", "ink") and float(n.alpha.default) >= 0.5))
+            if checked or rests:
+                subjects.append((o, own, ch, arm, rests, checked))
+        if not subjects:
+            return
+        if self._checks == "film":
+            fr = list(range(1, self.n_frames + 1, max(1, int(round(0.2 * self.fps)))))
+        else:
+            fr = sorted({int(f) for f in frames if 1 <= f <= self.n_frames + 1})
+        if not fr:
+            return
+        B = Capture(self.fps, fr, self._cuts)                            # poses and transforms at the sampled moments
+        for fn in list(self._post):
+            fn(B)
+        for n in self._nodes:
+            if n.obj is None or n.is_overlay or type(n).__name__ in ("Person", "PartNode", "Particle"):
+                continue
+            if n.parent is not None and n.parent.obj is not None:
+                n.obj.parent = n.parent.obj
+            n.bake(B)
+        E = _Eval(B)
+        ts, F = B.times, len(B.times)
+        has_floor = self.floor is not None
+        gz = getattr(self, "ground_z", None)
+        grounds = self._ground_surfaces()
+        waters = []
+        for n in self._nodes:
+            if getattr(n, "mat", None) == "water" and n.obj is not None and n.obj.type == "MESH" and self._bounds(n) is not None:
+                c, r, lo, hi = self._bounds(n)
+                m = n.matrix(0.0)
+                pts = np.array([[x, y, hi[2]] for x in (lo[0], hi[0]) for y in (lo[1], hi[1])]) @ m[:3, :3].T + m[:3, 3]
+                waters.append((pts[:, 0].min(), pts[:, 0].max(), pts[:, 1].min(), pts[:, 1].max(), float(pts[:, 2].max())))
+        solids = self._solids()
+
+        def ground_at(p):
+            """Height of the ground under world point p, or None where there is none (or it is under water)."""
+            g = None
+            if gz is not None:
+                g = float(gz(p[0], p[1]))
+            elif has_floor:
+                g = 0.0
+            for n, mi, m, lo, hi in grounds:
+                if lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1]:
+                    a = mi[:3, :3] @ np.array([p[0], p[1], hi[2] + 1.0]) + mi[:3, 3]
+                    d = mi[:3, :3] @ np.array([0.0, 0.0, -1.0])
+                    loc = self._bvh(n).ray_cast(Vector(a), Vector(d / np.linalg.norm(d)))[0] if self._bvh(n) is not None else None
+                    if loc is not None:
+                        z = float((m[:3, :3] @ np.array(loc) + m[:3, 3])[2])
+                        g = z if g is None else max(g, z)
+            if g is not None and any(x0 <= p[0] <= x1 and y0 <= p[1] <= y1 and wz >= g - 0.02 for x0, x1, y0, y1, wz in waters):
+                return None                                           # open water here: being under its surface is fine
+            return g
+
+        def label(o, own):
+            return f"'{o.name}'" + (f" (line {own.src_line})" if getattr(own, "src_line", 0) else "")
+        found = {}                                                       # (kind, subject, target) -> [amount, t0, t1, where, samples]
+
+        def note(kind, subj, target, amount, t, where):
+            e = found.setdefault((kind, subj, target), [0.0, t, t, where, 0])
+            if amount > e[0]:
+                e[0], e[3] = amount, where
+            e[2] = t
+            e[4] += 1
+        for o, own, ch, arm, rests, checked in subjects:
+            me = o.data
+            nv = len(me.vertices)
+            co = np.empty(nv * 3, dtype=np.float32)
+            me.vertices.foreach_get("co", co)
+            co = co.reshape(-1, 3).astype(np.float64)
+            pick = np.unique(np.concatenate([np.linspace(0, nv - 1, min(nv, 1800)).astype(np.int64), np.argsort(co[:, 2])[:300],
+                                             co.argmin(axis=0), co.argmax(axis=0)]))
+            v = co[pick]
+            if arm is not None:                                          # pose the sampled vertices
+                names = [b.name for b in arm.data.bones]
+                col = {nm: i for i, nm in enumerate(names)}
+                gmap = [col.get(g.name, -1) for g in o.vertex_groups]
+                W = np.zeros((len(pick), len(names) + 1))
+                for k, i in enumerate(pick.tolist()):
+                    for g in me.vertices[i].groups:
+                        if gmap[g.group] >= 0:
+                            W[k, gmap[g.group]] = g.weight
+                W[W[:, :-1].sum(axis=1) <= 1e-9, -1] = 1.0
+                top = np.argsort(-W, axis=1)[:, :4]
+                tw = np.take_along_axis(W, top, axis=1)
+                tw = tw / tw.sum(axis=1, keepdims=True)
+                S = np.concatenate([_rig_skin(E, o, arm), np.repeat(np.eye(4)[None, None], F, axis=0)], axis=1)
+                P = np.zeros((F, len(pick), 3))
+                for j in range(4):
+                    Sj = S[:, top[:, j]]
+                    P += tw[None, :, j, None] * (np.einsum("fkab,kb->fka", Sj[:, :, :3, :3], v) + Sj[:, :, :3, 3])
+            else:
+                P = np.repeat(v[None], F, axis=0)
+            M = E.full(E.world(o))
+            P = np.einsum("fab,fkb->fka", M[:, :3, :3], P) + M[:, None, :3, 3]
+            name = label(o, own)
+            root = ch[-1]
+            allowed = set()
+            for a in ch:
+                allowed |= set(getattr(a, "_allowed", ()))
+            for f, t in enumerate(ts):
+                if not own.eff_vis(t):
+                    continue
+                pts = P[f]
+                low = pts[np.argsort(pts[:, 2])[:260]]
+                if checked:                                              # under the ground
+                    deep = []
+                    for p in low:
+                        g = ground_at(p)
+                        if g is not None and g - p[2] > 0.015:
+                            deep.append((g - p[2], p))
+                    if len(deep) >= 3:
+                        d, p = max(deep, key=lambda x: x[0])
+                        note("ground", name, None, float(d), t, tuple(float(x) for x in p))
+                for surface, t0, t1, tol in rests:                        # what it was declared to rest on
+                    if t < t0 or (t1 is not None and t > t1):
+                        continue
+                    if surface is None:
+                        gaps = [(p[2] - g, p) for p in low[:120] for g in [ground_at(p)] if g is not None]
+                        tname = None
+                    else:
+                        tree = self._bvh(surface)
+                        if tree is None or not surface.eff_vis(t):
+                            continue
+                        mi = np.linalg.inv(surface.matrix(t))
+                        k = max(float(np.linalg.norm(mi[:3, 0])), 1e-9)
+                        gaps = []
+                        for p in low[:120]:
+                            qv = Vector(mi[:3, :3] @ p + mi[:3, 3])
+                            loc, nrm, _i, dist = tree.find_nearest(qv)
+                            if loc is not None:
+                                gaps.append(((dist if (qv - loc).dot(nrm) >= 0 else -dist) / k, p))
+                        tname = f"'{surface.name}'"
+                    if not gaps:
+                        continue
+                    gap, p = min(gaps, key=lambda x: x[0])
+                    if gap > tol:
+                        note("float", name, tname, float(gap), t, tuple(float(x) for x in p))
+                    elif gap < -tol:
+                        note("sink", name, tname, float(-gap), t, tuple(float(x) for x in p))
+                if not checked or f % 2:
+                    continue
+                lo_, hi_ = pts.min(axis=0), pts.max(axis=0)
+                for n, st, slo, shi in solids:                           # inside something solid
+                    if n is own or n.obj is o or id(n) in allowed or any(id(a) in getattr(n, "_allowed", ()) for a in ch):
+                        continue
+                    rn = n
+                    while rn.parent is not None:
+                        rn = rn.parent
+                    if rn is root or not n.eff_vis(t):
+                        continue
+                    if st:
+                        if np.any(hi_ < slo) or np.any(lo_ > shi):
+                            continue
+                        mi = np.linalg.inv(n.matrix(0.0))
+                        cand = pts[np.all((pts >= slo) & (pts <= shi), axis=1)]
+                    else:
+                        c, r = self._bounds(n)[:2]
+                        m = n.matrix(t)
+                        cw, rw = m[:3, :3] @ c + m[:3, 3], r * float(np.linalg.norm(m[:3, 0]))
+                        cand = pts[np.linalg.norm(pts - cw, axis=1) < rw]
+                        mi = np.linalg.inv(m)
+                    if len(cand) < 3:
+                        continue
+                    cand = cand[::max(1, len(cand) // 500)]
+                    deep = [(d, p) for p in cand for d in [self._depth_inside(n, mi, p)] if d > 0.015]
+                    if len(deep) >= 3:
+                        d, p = max(deep, key=lambda x: x[0])
+                        note("solid", name, f"'{n.name}'" + (f" (line {n.src_line})" if getattr(n, "src_line", 0) else ""),
+                             float(d), t, tuple(float(x) for x in p))
+        rows = sorted(((k, v) for k, v in found.items() if v[4] >= (2 if F > 2 else 1)), key=lambda kv: -kv[1][0])
+        for (kind, subj, target), (amount, t0, t1, w, cnt) in rows[:8]:
+            span = f"t={t0:.1f}s" if t1 - t0 < 0.25 else f"t={t0:.1f}-{t1:.1f}s"
+            at = f"near ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f})"
+            see = f"Look at it (sheet -t {(t0 + t1) / 2:.1f} marks the spot in magenta)"
+            if kind == "ground":
+                self.warn(f"clipping: {subj} is up to {amount * 100:.0f} cm under the ground at {span} {at}. {see}: raise it, or "
+                          f"change the pose so nothing goes under the surface it stands on.")
+            elif kind == "solid":
+                self.warn(f"clipping: {subj} goes {amount * 100:.0f} cm into {target} at {span} {at}. {see}: move one of them, or if "
+                          f"it is meant to be: <that node>.solid = False, or a.allow(b).")
+            elif kind == "float":
+                self.warn(f"floating: {subj} is {amount * 100:.0f} cm above {target or 'the ground'} at {span} {at}, but rests_on() says "
+                          f"it lies on it. {see}: lower it until it touches.")
+            else:
+                self.warn(f"clipping: {subj} sinks {amount * 100:.0f} cm into {target or 'the ground'} it rests on at {span} {at}. "
+                          f"{see}: raise it until it only touches.")
+        if self.q.get("flags"):
+            for (kind, subj, target), (amount, t0, t1, w, cnt) in rows[:12]:
+                self.dot(w, r=26, ring=True, color="#ff2bd6", t=max(t0 - 0.05, 0.0), out=t1 + 0.2)
+                self.dot(w, r=4, color="#ff2bd6", t=max(t0 - 0.05, 0.0), out=t1 + 0.2)
+        if len(rows) > 8:
+            self.warn(f"clipping: ...and {len(rows) - 8} more mesh overlaps")
+
     def _obstacles(self):
         """Footprints (x0, y0, x1, y1) of furniture-sized static props, for walk() to route around."""
         out = []
@@ -934,6 +1188,11 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 self._clip_check()
             except Exception as ex:                                  # a check must never stop a render
                 print("UMBRA_WARN clipping check skipped:", repr(ex))
+        if first and self.check_clipping and self._checks:
+            try:
+                self._mesh_check(frames)
+            except Exception as ex:
+                print("UMBRA_WARN mesh check skipped:", repr(ex))
         B = (Capture if self._capture else Baker)(self.fps, frames, self._cuts, film=(self.n_frames + 1) if self._film else None)
         for fn in self._post:              # things that need the final camera / targets (labels...)
             fn(B)

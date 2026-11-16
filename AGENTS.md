@@ -7,6 +7,8 @@ and renders an mp4. No Blender knowledge needed.
 
 ```bash
 python -m umbra lint   scenes/my_scene.py          # 0. build + all checks, no rendering, no GPU (~5 s). Fix the flags.
+python -m umbra physics scenes/my_scene.py         # 0b. contact + collision MEASURED on the posed meshes (10-90 s, no GPU). Must
+                                                   #     say "0 over the limit" before a final render - see Physical integrity.
 python -m umbra sheet  scenes/my_scene.py          # 1. ONE image: 12 timestamped frames across the film. Look at it.
 python -m umbra sheet  scenes/my_scene.py -t 4.2 -t 4.4 -t 4.6 -t 4.8 --cols 4   # zoom in on a moment / fast event
 python -m umbra still  scenes/my_scene.py -t 6.5    # 2. one full-quality frame (text legibility, detail)
@@ -271,10 +273,39 @@ a mover) · `s.arrow(points, t)` · `s.ring(at, r, t, repeat=3)` · `s.zone(pts 
   What is tested: body cores, spine, legs, forearms and hands of every person against solids (thin table tops
   and rails count; hands may touch small graspable props), shins, feet and forearms coming out the far side of
   anything solid (seated people included), moving props against static ones, two people on one spot, the camera
-  inside geometry. `render` (both engines) runs the same checks and prints the same flags. `walk()` already routes around furniture, and hands in table poses rest **on**
+  inside geometry. `render` (both engines) runs the same checks and prints the same flags.
+  Rigged meshes (anything on a Blender armature) and imported models that move are tested with their real, posed
+  vertices: under the ground (the floor, `s.ground_z`, any terrain mesh - even one created with `solid=False`),
+  inside solids, and - when you declare it with `node.rests_on(surface=None | node, t, out, tol=0.02)` - floating
+  above or sunk into what they lie on. Declare `rests_on` for anything that lies in a truck bed, on a jetty, on sand. `walk()` already routes around furniture, and hands in table poses rest **on**
   the top (`p.sit(table=0.75)`), so most of this never fires.
 - **Preflight** also flags a camera under the ground and people below it. Treat every `warning:` as a bug to fix
   before rendering (move the thing, re-route the walk, or mark the overlap as intended).
+
+## Physical integrity (`python -m umbra physics scene.py`)
+
+`lint` asks quick questions; `physics` measures. Every mesh that moves or is declared to rest on something - people,
+rigged animals, imported models, vehicles, boats, props, held things - is posed 10 times a second (then on every frame
+around the worst moments) and its real vertices are tested. One row per pair, with the worst value and when:
+
+| row | meaning | limit |
+|---|---|---|
+| `penetration` | how far one mesh goes into another (a limb through a hull counts with how far it sticks out) | 1.5 cm |
+| `under ground` | how far it goes under the floor, a terrain mesh or `s.ground_z` (open water is exempt) | 1.5 cm |
+| `floating` | nothing under it: declared with `node.rests_on(surface)`, or hovering a constant few cm for 1 s+ | 2 cm |
+| `hand` | a hand's distance from what it holds, and from its `reach()` target | 3 cm |
+
+Status: `FAIL` (over the limit - fix the staging), `declared` (over the limit on a pair you covered with `allow()` or
+`solid=False`: these do NOT switch the measurement off, the row stays so that someone looks), `engine` (a known umbra
+limitation, see below), `ok`. The command exits with code 2 while any row is `FAIL`, writes
+`out/<scene>_physics.txt` / `.json`, and prints the `sheet -t ...` line for the flagged moments (`--stills` renders
+them full size). Declare `node.rests_on(surface)` for everything that lies or stands on something other than the
+plain floor (an animal in a truck bed, a crate on a jetty): then a gap is a `floating` row instead of nothing.
+
+A zero here is necessary, not sufficient: it cannot tell whether teeth close on the right thing or whether the action
+reads as what the narration says. Look at the frames. If an action cannot be staged so that it passes, simplify it
+(fewer people, an angle that shows the real contact, a cut) - do not hide it with `allow` or `solid=False`.
+Known `engine` row: on the first step of a walk the toe dips up to 3 cm into the floor for a few frames.
 
 ## Gotchas
 

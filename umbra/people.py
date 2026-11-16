@@ -596,6 +596,24 @@ def solve_pose(v, sk=None, world=None, reach=None, look=None):
             if ank[2] < sk.ankle_h:
                 ank[2] = sk.ankle_h
                 moved = True
+            if aw > 1e-3:
+                # A walking foot turns about its ankle (heel strike, toe-off). The ankle rises by whatever would put the
+                # toe or the heel under the floor, as a real foot rolls over its heel and the ball of the foot. (While a
+                # gait fades in, the foot is between the pose's own pitch and the gait's: the larger dip counts.)
+                yaw0 = math.degrees(math.atan2(-Rp[0, 1], Rp[1, 1])) + sgn * float(v[IDX["leg_" + side]][2])
+                dip = 0.0
+                for pitch in ((foot * aw, foot) if aw < 1 else (foot,)):
+                    fl = _r3(rz(yaw0) @ rx(pitch))
+                    dip = max(dip, -min(float((fl @ np.array([0.0, sk.toe_y, -sk.ankle_h]))[2]),
+                                        float((fl @ np.array([0.0, sk.heel_y, -sk.ankle_h]))[2])) - ank[2])
+                if aw < 1:              # fading in: the foot is still partly the pose's own, hanging off a shin that the
+                    Ri, ki = _ik(Hp, Rp.T @ (ank - P[:3, 3]), L_THIGH, L_SHIN, norm(Rt @ np.array([0.0, 1.0, 0.15])))   # gait tilts
+                    fk = Rp @ (Ri @ _r3(rz(180.0))) @ _r3(rx(-min(ki, 150.0))) @ _r3(rx(foot))
+                    dip = max(dip, (1.0 - aw) * (-min(float((fk @ np.array([0.0, sk.toe_y, -sk.ankle_h]))[2]),
+                                                      float((fk @ np.array([0.0, sk.heel_y, -sk.ankle_h]))[2])) - ank[2]))
+                if dip > 0:
+                    ank[2] += dip * min(aw * 4.0, 1.0)
+                    moved = True
             Rt0, knee0 = Rt, knee
             if moved:
                 Ri, ki = _ik(Hp, Rp.T @ (ank - P[:3, 3]), L_THIGH, L_SHIN, norm(Rt @ np.array([0.0, 1.0, 0.15])))
@@ -828,7 +846,7 @@ def _bpy_body(scene, key):
         m._add(v, faces, smooth=True)
         # The live renderer skins on the GPU from W itself: no vertex groups needed, and an unlit silhouette does not
         # care which way its faces wind (nothing is culled, nothing is shaded).
-        live = getattr(scene, "_capture", False)
+        live = getattr(scene, "_capture", False) and not getattr(scene, "_measure", False)   # (measuring needs true normals)
         me = m.build("body_" + "_".join(str(k) for k in key if k), outward=not (live and key[4] in ("flat", "fill")))
         if not live:
             bm = bmesh.new()
@@ -1029,7 +1047,9 @@ class Person(Node):
         """Sit on something whose top is `seat` metres high. Already seated at the start: put the figure AT the seat
         (same heading as the chair). Sitting down on camera: stand the figure ~0.35 m in front of the seat and pass
         step=0.35 - it hinges forward, backs onto the seat and settles (standing inside a chair first would clip)."""
-        lift = (seat + 0.085) / (self.height / 1.75) - self.sk.HIP_H
+        # the hip joint sits 11 cm above the seat: that is how far the flesh under it reaches (measured on the body
+        # meshes with `umbra physics`; at 8.5 cm a seated figure sank 2.5-3.5 cm into every seat)
+        lift = (seat + 0.11) / (self.height / 1.75) - self.sk.HIP_H
         if table is not None:                        # hands rest flat on a top `table` metres above the floor
             k = self.height / 1.75
             over.setdefault("hand_l", (-0.16, 0.36, 0.2, table / k))

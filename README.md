@@ -157,6 +157,12 @@ rings, zones and light beams. Particles are analytic, so any frame can be render
 
 [`tests/safeguards.py`](tests/safeguards.py) stages all of these on purpose.
 
+`python -m umbra physics scene.py` goes further than the flags: it poses every moving mesh (people, rigged animals,
+imported models, vehicles, props) 10 times a second and measures, per pair, the deepest penetration, how far anything
+is under the ground, what floats above its support and how far hands are from what they hold - a table with the worst
+value and its moment for each pair, limits of 1.5 / 1.5 / 2 / 3 cm, and a non-zero exit code while anything is over.
+`allow()` and `solid=False` do not silence it.
+
 ## How it works
 
 ```
@@ -265,6 +271,7 @@ python -m umbra still  scene.py -t T [-t T ...] [-q draft|preview|fast|final|ult
 python -m umbra render scene.py [-q final] [-j 2] [--range T0 T1] [--resume] [--nvenc] [--safe] [--gpu-backend vulkan]
 python -m umbra render scene.py --fast [--x264]   # umbra's real-time renderer; also `sheet --fast`, `still --fast`
 python -m umbra lint   scene.py        # build + every check, no rendering, no GPU
+python -m umbra physics scene.py [--fps 10] [--stills]   # contact + collision measured on the posed meshes; exit 2 if over a limit
 python -m umbra blend  scene.py
 python -m umbra api    [word]          # method signatures + docstrings, e.g. `api trail` (also in docs/API.md)
 python -m umbra check  video.mp4       # flicker meter
