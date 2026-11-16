@@ -7,8 +7,8 @@ tested:
 
   penetration   how far it goes into any other mesh (limit 1.5 cm)
   ground        how far it goes under the floor, the terrain or s.ground_z (limit 1.5 cm; open water is exempt)
-  floating      a thing with nothing under it within 2 cm: declared with node.rests_on(), or hovering a constant
-                few centimetres above its support for a second or more
+  floating      a thing that touches nothing (ground, or any other mesh, within 2 cm): declared with
+                node.rests_on(), or hovering a constant few centimetres from the nearest thing for a second or more
   hands         how far a hand is from what it holds, and from what it reaches for (limit 3 cm)
 
 `allow()` and `solid=False` do not switch anything off here; a pair they cover is still measured and listed, marked
@@ -208,10 +208,24 @@ def _bodies(s, B, E, ground):
                 J = np.einsum("fbij,bj->fbi", S[:, :, :3, :3], joints) + S[:, :, :3, 3]          # every joint, posed
                 b.jw = np.einsum("fab,fkb->fka", b.M[:, :3, :3], J) + b.M[:, None, :3, 3]
             else:
+                # A rigid thing has no bones to anchor its surface to, so each sampled vertex gets a short stub pointing
+                # into the thing itself: something that cuts the stub has entered it. The stub must stay inside: at
+                # most 6 cm, and never past 45 % of the thing's own thickness there (a rope 1.6 cm thick gets 0.7 cm;
+                # a one-sided sheet gets none, and is only ever tested as the thing being entered).
+                from mathutils import Vector
+                from mathutils.bvhtree import BVHTree
                 nr = np.empty(nv * 3, dtype=np.float32)
                 me.vertices.foreach_get("normal", nr)
+                nr = nr.reshape(-1, 3)[pick].astype(np.float64)
+                b.tree = BVHTree.FromPolygons(co.tolist(), b.tris.tolist())
+                sc = max(float(b.scale[0]), 1e-6)
+                stub = np.zeros(len(pick))
+                for i in range(len(pick)):
+                    hit = b.tree.ray_cast(Vector(v[i] - nr[i] * 1e-4 / sc), Vector(-nr[i]), 10.0 / sc)
+                    if hit[0] is not None:
+                        stub[i] = min(0.06 / sc, 0.45 * hit[3])
                 P = np.repeat(v[None], F, axis=0)
-                A = np.repeat((v - nr.reshape(-1, 3)[pick] * (0.06 / max(float(b.scale[0]), 1e-6)))[None], F, axis=0)   # a stub in
+                A = np.repeat((v - nr * stub[:, None])[None], F, axis=0)
             b.pts = np.einsum("fab,fkb->fka", b.M[:, :3, :3], P) + b.M[:, None, :3, 3]
             b.anc = np.einsum("fab,fkb->fka", b.M[:, :3, :3], A) + b.M[:, None, :3, 3]
             b.lo, b.hi = b.pts.min(axis=1), b.pts.max(axis=1)
@@ -273,6 +287,9 @@ def _depths(a, b, f, cand):
             loc, nrm, _i, _d = tree.ray_cast(p, d / ln, ln)
             if loc is not None:                                      # the surface point is on the far side of a face of b
                 depth = abs((q - loc).dot(nrm))
+                if through is None:                                  # a stub: one end of it is inside b, by this much.
+                    da = abs((p - loc).dot(nrm))                     # Which end, the face's direction says when b is a
+                    depth = (depth if d.dot(nrm) < 0 else da) if closed else min(depth, da)      # closed mesh.
         if through is not None and through[a.top0[cand[i]]]:
             loc, nrm, _i, dist = tree.find_nearest(q)
             if loc is not None:
@@ -393,27 +410,30 @@ def measure(s, B, hover=True):
                     gap = max(p[2] - g, 0.0)
                     if gap < best:
                         best, bp = gap, p
-            if best > 0.005:
-                for b in bodies:
-                    if b is a or b.own is a.own or not b.vis[f] or (b.person is not None and b.person is a.person):
+            if best > 0.005:                                         # not on the ground: is it touching anything at all?
+                for b in bodies:                                     # (a rope round a snout, a cloth over a back, a lamp on a
+                    if b is a or b.own is a.own or not b.vis[f] or (b.person is not None and b.person is a.person):   # ceiling)
                         continue
-                    if b.hi[f][2] < low[0][2] - 0.6 or np.any(a.hi[f][:2] < b.lo[f][:2]) or np.any(a.lo[f][:2] > b.hi[f][:2]):
+                    if np.any(a.hi[f] < b.lo[f] - 0.3) or np.any(a.lo[f] > b.hi[f] + 0.3):
                         continue
+                    cand = np.nonzero(np.all((pts >= b.lo[f] - 0.3) & (pts <= b.hi[f] + 0.3), axis=1))[0]
+                    if not len(cand):
+                        continue
+                    cand = cand[::len(cand) // 120 + 1]
                     tree, mi, k, _c = _tree(b, f)
-                    dn = Vector(mi[:3, :3] @ np.array([0.0, 0.0, -1.0])).normalized()
-                    for p in low:
-                        o = Vector(mi[:3, :3] @ (p + np.array([0.0, 0.0, 0.04])) + mi[:3, 3])
-                        hit = tree.ray_cast(o, dn, 0.7 / k)
-                        if hit[0] is not None:
-                            gap = max(hit[3] * k - 0.04, 0.0)
-                            if gap < best:
-                                best, bp = gap, p
+                    Q = pts[cand] @ mi[:3, :3].T + mi[:3, 3]
+                    for i in range(len(cand)):
+                        hit = tree.find_nearest(Vector(Q[i]), best / k + 1e-6)
+                        if hit[0] is not None and hit[3] * k < best:
+                            best, bp = hit[3] * k, pts[cand[i]]
+                    if best <= 0.005:
+                        break
             gaps[f], where[f] = best, bp
         for surface, t0, t1, tol in a.rests:                              # declared: must touch throughout
             for f in range(F):
                 if np.isnan(gaps[f]) or ts[f] < t0 or (t1 is not None and ts[f] > t1):
                     continue
-                put("floating", a.name, "what it rests on", min(gaps[f], 9.99), tol, f, where[f], note="rests_on() declared")
+                put("floating", a.name, "anything", min(gaps[f], 9.99), tol, f, where[f], note="rests_on() declared: touches nothing")
         if not a.rests and hover:                                        # undeclared: a constant small hover is a mistake
             dt = (ts[1] - ts[0]) if F > 1 else 1.0
             need = max(2, int(round(1.0 / max(dt, 1e-6))))
@@ -425,8 +445,8 @@ def measure(s, B, hover=True):
                     continue
                 if len(run) >= need and np.ptp(gaps[run]) < 0.03 and np.all(np.diff(run) == 1):
                     for g in run:
-                        put("floating", a.name, "nothing under it", float(gaps[g]), LIMITS["float"], g, where[g],
-                            note="hovers a constant height above its support")
+                        put("floating", a.name, "anything", float(gaps[g]), LIMITS["float"], g, where[g],
+                            note="hovers a constant distance from the nearest thing, touching nothing")
                 run = []
     # ---- hands
     people = [n for n in s._nodes if type(n).__name__ == "Person" and n.obj is not None]

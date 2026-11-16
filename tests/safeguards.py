@@ -2,6 +2,7 @@
 
     python -m umbra still tests/safeguards.py -t 2.0
 """
+import math
 from umbra import *
 
 
@@ -44,3 +45,10 @@ class Sloppy(Scene):
         boat = s.add(hull, at=(4.5, 3.0, 0), color="#6a5f52", name="boat")
         rower = s.person(at=(4.5, 2.8, 0.18), color=GREEN, name="rower").sit(seat=0.46)
         rower.allow(boat)
+        # 8. physics (python -m umbra physics): a crate declared to rest on the ground but hanging 6 cm above it, and a
+        #    thin rope lying on a drum that moves with it - the rope touches the drum and must NOT read as penetration
+        s.crate(at=(3.0, -3.0, 0.06)).rests_on()
+        drum = s.cyl(0.4, 0.8, at=(5.5, -2.0, 0)).move((5.5, -1.0, 0), t=1, dur=2)
+        loop = Mesh()
+        loop.tube([(0.41 * math.cos(a), 0.41 * math.sin(a), 0.4) for a in [2 * math.pi * i / 24 for i in range(25)]], r=0.008)
+        s.add(loop, parent=drum, color="#c9b48a", name="rope").rests_on(drum)
