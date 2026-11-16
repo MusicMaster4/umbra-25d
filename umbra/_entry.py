@@ -10,6 +10,9 @@ def main():
     args = json.loads(sys.argv[sys.argv.index("--") + 1])
     from umbra import render
     render.run(args)
+    if str(args.get("mode", "")).startswith("live"):     # nothing to save: skip Blender's shutdown (it is slow, and
+        sys.stdout.flush()                               # has crashed there with dozens of processes exiting at once)
+        os._exit(0)
 
 
 if __name__ == "__main__":

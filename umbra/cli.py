@@ -108,7 +108,7 @@ def _outdir(a):
     return d
 
 
-ENGINE = os.environ.get("UMBRA_ENGINE", "live")       # "live" = umbra's own real-time renderer, "eevee" = Blender's
+ENGINE = os.environ.get("UMBRA_ENGINE", "eevee")      # "eevee" = Blender's renderer (the full-quality picture), "live" = --fast
 
 
 def cmd_render_live(a):
@@ -168,6 +168,25 @@ def cmd_render_live(a):
 
 
 def _has_nvenc(ff):
+    """Can this ffmpeg encode with NVENC on this machine? Asked once (a tiny test encode), then remembered for a day."""
+    import tempfile
+    note = os.path.join(tempfile.gettempdir(), "umbra_cache", "nvenc_" + str(abs(hash(ff)) % 10 ** 8))
+    try:
+        if time.time() - os.path.getmtime(note) < 86400:
+            return open(note).read().strip() == "1"
+    except OSError:
+        pass
+    ok = _probe_nvenc(ff)
+    try:
+        os.makedirs(os.path.dirname(note), exist_ok=True)
+        with open(note, "w") as fh:
+            fh.write("1" if ok else "0")
+    except OSError:
+        pass
+    return ok
+
+
+def _probe_nvenc(ff):
     try:
         r = subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=black:s=256x144:d=0.1", "-c:v", "h264_nvenc",
                             "-f", "null", "-"], capture_output=True, timeout=20)
@@ -612,8 +631,10 @@ def main(argv=None):
         p.add_argument("--cls", help="Scene class name (default: last one in the file)")
         p.add_argument("-q", "--quality", default=q, choices=["draft", "preview", "fast", "final", "ultra"])
         p.add_argument("--gpu-backend", choices=["opengl", "vulkan"], help="Blender GPU backend (default: Blender's own)")
-        p.add_argument("-e", "--engine", choices=["live", "eevee"], default=ENGINE,
-                       help="live = umbra's own real-time renderer (default), eevee = Blender's EEVEE (slower, the reference picture)")
+        p.add_argument("-e", "--engine", choices=["eevee", "live"], default=ENGINE,
+                       help="eevee = Blender's EEVEE, the full-quality picture (default); live = umbra's own real-time renderer")
+        p.add_argument("--fast", dest="engine", action="store_const", const="live",
+                       help="same as --engine live: a 20 s film in seconds instead of minutes, close to the eevee picture but not it")
         p.add_argument("-o", "--out", help="output file")
         p.add_argument("--out-dir", help="output directory (default ./out)")
         p.add_argument("-v", "--verbose", action="store_true")

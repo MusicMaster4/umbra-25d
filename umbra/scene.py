@@ -147,7 +147,8 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         ink = L.ink if ink is None else ink
         name = name or "obj"
         if isinstance(mesh, Mesh):
-            me = mesh.build(name, ink=bool(ink), ink_color=L.ink_color)
+            # (the live renderer neither culls nor shades unlit things, so their winding does not need fixing)
+            me = mesh.build(name, ink=bool(ink), ink_color=L.ink_color, outward=not (self._capture and mat in FLAT_MATS and not ink))
         else:
             me = mesh
             ink = False

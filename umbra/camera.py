@@ -239,8 +239,10 @@ class Camera:
         # safeguard: depth precision. The near plane is pushed out as far as the nearest geometry allows
         # (precision ~ 1 / near), which is what keeps distant coplanar-ish surfaces from z-fighting.
         if B.film_times is not None:                         # one chunk of a film: same planes as the whole film
-            near, far = self.scene._clip_range(B.film_times, [self.pos.at(t) for t in B.film_times])
-            near = near[B.film_slice]
+            film = self.scene.__dict__.get("_clip_film")     # the same for every chunk: worked out once per process
+            if film is None:
+                film = self.scene._clip_film = self.scene._clip_range(B.film_times, [self.pos.at(t) for t in B.film_times])
+            near, far = film[0][B.film_slice], film[1]
         else:
             near, far = self.scene._clip_range(B.times, locs)
         d.clip_start = float(near[0])

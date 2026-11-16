@@ -12,6 +12,8 @@ python -m umbra sheet  scenes/my_scene.py -t 4.2 -t 4.4 -t 4.6 -t 4.8 --cols 4  
 python -m umbra still  scenes/my_scene.py -t 6.5    # 2. one full-quality frame (text legibility, detail)
 python -m umbra render scenes/my_scene.py           # 3. final 1080p mp4 -> out/my_scene.mp4  (about 0.6 s per frame: ~6 min / 20 s)
 python -m umbra render scenes/my_scene.py --range 8 11   # re-render a span; its frames match the full film's
+python -m umbra render scenes/my_scene.py --fast    # same film in 10-25 s through umbra's own real-time renderer
+python -m umbra sheet  scenes/my_scene.py --fast    # (--fast works on sheet and still too)
 python -m umbra api trail                           # exact signature + docstring of anything (no Blender needed)
 python -m umbra check out/my_scene.mp4              # flicker meter for a finished video (render runs it for you)
 ```
@@ -277,6 +279,11 @@ a mover) · `s.arrow(points, t)` · `s.ring(at, r, t, repeat=3)` · `s.zone(pts 
 - `flat` things fade with a little grain (they glow); for a soft translucent thing use `mat="fill"`.
 - Hide what a later shot must not see (`node.hide(t)`), or build the second set far away.
 - Escape hatch: every Node has `.obj` (the Blender object); `s.on_frame(fn)` runs `fn(t)` before each frame.
+- `--fast` is a second renderer, not a faster setting: close to the normal picture (same staging, colours, text, glow,
+  soft shadows, depth of field) but drawn by umbra itself, so it has no bounced light and its shadows, blur and
+  reflections are its own versions. Use it to iterate and for drafts; deliver with the normal render unless told
+  otherwise. It only draws what umbra built: `s.on_frame` hooks that edit Blender data (other than umbra's own text
+  counters) and things animated by Blender modifiers are not applied.
 - Render speed needs nothing from you. Two things only if you are chasing a difference: `render --safe` renders every
   frame from scratch the slow way, and class attr `solid_shadows = False` redraws shadows for every sample (the
   default draws solid shadows once per frame when no shadow caster in the film is ever see-through). `-j` above 2

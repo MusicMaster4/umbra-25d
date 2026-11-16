@@ -524,8 +524,11 @@ def _lights(s, E, T, st):
     W, H = s.size
     for i in range(F):
         act = [r for r in recs if r["energy"][i] > 1e-6]
+        if len(act) > MAXL:                               # too many: keep what lights the place the camera looks at
+            tgt = T.campos[i] + T.camfwd[i] * float(T.focus[i])
+            act.sort(key=lambda r: (r["kind"] != 0, -r["energy"][i] / (1.0 + float(np.sum((r["pos"][i] - tgt) ** 2)))))
+            act = act[:MAXL]
         act.sort(key=lambda r: (r["kind"] != 0, -r["energy"][i]))
-        act = act[:MAXL]
         T.nl[i] = len(act)
         nspot = npoint = 0
         got_sun = False
@@ -683,7 +686,7 @@ _LIGHT_TEX = [("FLOAT_2D_ARRAY", "sunmap"), ("FLOAT_2D_ARRAY", "spotmap"), ("FLO
 class Renderer:
     """Owns the GPU side. frame(T, i) draws baked frame i of the tables T and returns its RGB bytes (top row first)."""
 
-    def __init__(self, s, st, ss=4, ts=2, os_=3, taps=40):
+    def __init__(self, s, st, ss=4, ts=2, os_=3, taps=48):
         gpu.init()
         self.s, self.st = s, st
         self.W, self.H = int(s.size[0] * s.q["scale"]), int(s.size[1] * s.q["scale"])
@@ -704,11 +707,20 @@ class Renderer:
         fs_in = [("VEC2", "pos")]
         self.sh["resolve"] = _shader("resolve", G.FS_VERT, G.RESOLVE_FRAG, fs_in, [], [("VEC4", "o_color"), ("VEC4", "o_glow"), ("VEC4", "o_aux"), ("VEC4", "o_surf")],
                                      _LIGHT_CONST + [("VEC4", "campos"), ("MAT4", "invvp"), ("MAT4", "vp"), ("MAT4", "nextvp"), ("VEC4", "projpar")],
-                                     [("FLOAT_2D", "objtex")] + _LIGHT_TEX + [("FLOAT_2D", "gb0"), ("FLOAT_2D", "gb1"), ("DEPTH_2D", "gdepth")], d)
+                                     [("FLOAT_2D", "objtex")] + _LIGHT_TEX + [("FLOAT_2D", "gb0"), ("FLOAT_2D", "gb1"), ("DEPTH_2D", "gdepth"),
+                                                                             ("FLOAT_2D", "t_mask0"), ("FLOAT_2D", "t_mask1")], d + [("USE_MASK", 1)])
+        self.sh["mask"] = _shader("mask", G.FS_VERT, G.MASK_FRAG, fs_in, [], [("VEC4", "m0"), ("VEC4", "m1")],
+                                  _LIGHT_CONST + [("VEC4", "campos"), ("MAT4", "invvp"), ("VEC4", "projpar")],
+                                  [("FLOAT_2D", "objtex")] + _LIGHT_TEX + [("FLOAT_2D", "gb0"), ("FLOAT_2D", "gb1"), ("DEPTH_2D", "gdepth")], d)
         one = [("VEC4", "o_color")]
         self.sh["merge"] = _shader("merge", G.FS_VERT, G.MERGE_FRAG, fs_in, [], [("VEC4", "o_color"), ("VEC4", "o_glow")], [],
                                    [("FLOAT_2D", "t_color"), ("FLOAT_2D", "t_glow"), ("FLOAT_2D", "t_aux"), ("FLOAT_2D", "t_tcolor"), ("FLOAT_2D", "t_tglow")], d)
         self.sh["dof"] = _shader("dof", G.FS_VERT, G.DOF_FRAG, fs_in, [], one, [("VEC4", "dofpar")], [("FLOAT_2D", "t_in"), ("FLOAT_2D", "t_tile")], d)
+        self.sh["dofsmooth"] = _shader("dofsmooth", G.FS_VERT, G.DOFSMOOTH_FRAG, fs_in, [], one, [("VEC4", "dofpar")],
+                                       [("FLOAT_2D", "t_in"), ("FLOAT_2D", "t_tile")], d)
+        self.sh["maskblur"] = _shader("maskblur", G.FS_VERT, G.MASKBLUR_FRAG, fs_in, [], [("VEC4", "m0"), ("VEC4", "m1")],
+                                      [("VEC4", "campos"), ("MAT4", "invvp")],
+                                      [("FLOAT_2D", "t_mask0"), ("FLOAT_2D", "t_mask1"), ("FLOAT_2D", "gb1"), ("DEPTH_2D", "gdepth")], d)
         self.sh["coctile"] = _shader("coctile", G.FS_VERT, G.COCTILE_FRAG, fs_in, [], one, [("VEC4", "dofpar")], [("FLOAT_2D", "t_in")], d)
         self.sh["ssr"] = _shader("ssr", G.FS_VERT, G.SSR_FRAG, fs_in, [], one, [("MAT4", "invvp"), ("MAT4", "vp"), ("VEC4", "campos"), ("VEC4", "camfwd")],
                                  [("FLOAT_2D", "t_in"), ("FLOAT_2D", "t_aux"), ("FLOAT_2D", "t_surf")], d)
@@ -756,9 +768,18 @@ class Renderer:
         self.fb_point = [FB(depth_slot=self.pointdepth, color_slots=({"texture": self.pointmap, "layer": c},)) for c in range(MAXPOINT * 6)]
         for t in (self.sunmap, self.spotmap, self.pointmap):
             t.filter_mode(False)
+        for fbs, far in ((self.fb_sun, 1.0), (self.fb_spot, 1e9), (self.fb_point, 1e9)):   # "nothing in the way" until drawn
+            for fb in fbs:
+                with fb.bind():
+                    fb.clear(color=(far, far, far, 1.0), depth=1.0)
         hdr = lambda w=W, h=H: T_((w, h), format="RGBA16F")
         self.c_color, self.c_glow, self.c_aux, self.c_surf = hdr(), hdr(), hdr(), T_((W, H), format="RGBA16")
         self.fb_res = FB(color_slots=(self.c_color, self.c_glow, self.c_aux, self.c_surf))
+        mw, mh = (W + 1) // 2, (H + 1) // 2
+        self.mask0, self.mask1 = T_((mw, mh), format="RGBA8"), T_((mw, mh), format="RGBA8")
+        self.fb_mask = FB(color_slots=(self.mask0, self.mask1))
+        self.mask0b, self.mask1b = T_((mw, mh), format="RGBA8"), T_((mw, mh), format="RGBA8")
+        self.fb_maskb = FB(color_slots=(self.mask0b, self.mask1b))
         self.c_refl, self.c_color2 = hdr(), hdr()
         self.fb_refl, self.fb_color2 = FB(color_slots=(self.c_refl,)), FB(color_slots=(self.c_color2,))
         self.coctile = T_(((W + 15) // 16, (H + 15) // 16), format="RGBA16F")
@@ -771,6 +792,8 @@ class Renderer:
         self.fb_m = FB(color_slots=(self.m_color, self.m_glow))
         self.p = [(hdr(), None) for _ in range(4)]                        # ping-pong HDR buffers
         self.p = [(t, FB(color_slots=(t,))) for t, _ in self.p]
+        t = hdr()
+        self.dofmid = (t, FB(color_slots=(t,)))
         self.bloom = []
         w, h = W, H
         for _ in range(8):
@@ -791,6 +814,7 @@ class Renderer:
         self.fb_ov = FB(color_slots=(self.ov,))
         self._ov_key = None
         self.times = {}
+        self.profile = False
         L = s.look
         self.bg = lin(L.bg)
         self.ambient = [c * L.ambient_power for c in lin(L.ambient)[:3]] + [0.0]
@@ -800,6 +824,9 @@ class Renderer:
 
     # -- helpers
     def _tic(self, k, t0):
+        if self.profile:                                 # wait for the GPU, so the time is this stage's and not the next read's
+            with self.fb_tile.bind():
+                self.fb_tile.read_color(0, 0, 1, 1, 4, 0, "FLOAT")
         self.times[k] = self.times.get(k, 0.0) + time.perf_counter() - t0
 
     def _geo_uniforms(self, sh, vp, T, i, mode):
@@ -811,23 +838,37 @@ class Renderer:
         sh.uniform_int("mode", mode)
 
     def _light_uniforms(self, sh, T, i):
-        sh.uniform_sampler("sunmap", self.sunmap)
-        sh.uniform_sampler("spotmap", self.spotmap)
-        sh.uniform_sampler("pointmap", self.pointmap)
+        """Lights, shadow views and look constants. A shader that leaves some of them unused has had them stripped by
+        the compiler, so each one is set only if it is still there."""
         B_ = gpu.types.Buffer
         f32 = np.float32
-        sh.uniform_vector_float(sh.uniform_from_name("sunvp"), B_("FLOAT", 32, np.ascontiguousarray(T.sunvp[i].transpose(0, 2, 1), dtype=f32).ravel()), 16, 2)
-        sh.uniform_vector_float(sh.uniform_from_name("sunpar"), B_("FLOAT", 8, np.ascontiguousarray(T.sunpar[i], dtype=f32).ravel()), 4, 2)
-        sh.uniform_vector_float(sh.uniform_from_name("spotvp"), B_("FLOAT", 16 * MAXSPOT, np.ascontiguousarray(T.spotvp[i].transpose(0, 2, 1), dtype=f32).ravel()), 16, MAXSPOT)
-        sh.uniform_int("nlights", int(T.nl[i]))
+
+        def vec(name, arr, length, count):
+            try:
+                sh.uniform_vector_float(sh.uniform_from_name(name), B_("FLOAT", length * count, np.ascontiguousarray(arr, dtype=f32).ravel()), length, count)
+            except ValueError:
+                pass
+
+        def one(name, value, fn=None):
+            try:
+                (fn or sh.uniform_float)(name, value)
+            except ValueError:
+                pass
+        one("sunmap", self.sunmap, sh.uniform_sampler)
+        one("spotmap", self.spotmap, sh.uniform_sampler)
+        one("pointmap", self.pointmap, sh.uniform_sampler)
+        vec("sunvp", T.sunvp[i].transpose(0, 2, 1), 16, 2)
+        vec("sunpar", T.sunpar[i], 4, 2)
+        vec("spotvp", T.spotvp[i].transpose(0, 2, 1), 16, MAXSPOT)
+        one("nlights", int(T.nl[i]), sh.uniform_int)
         for k, nm in enumerate(("L_pos", "L_col", "L_dir", "L_par")):
-            sh.uniform_vector_float(sh.uniform_from_name(nm), B_("FLOAT", MAXL * 4, np.ascontiguousarray(T.L[i, k]).ravel()), 4, MAXL)
-        sh.uniform_float("ambient", self.ambient)
-        sh.uniform_float("camfwd", (*T.camfwd[i], 0.0))
-        sh.uniform_float("fadepar", self.fade)
-        sh.uniform_float("fogpar", self.fog)
-        sh.uniform_float("bgcol", self.bg)
-        sh.uniform_float("lookpar", (self.s.look.rough, self.use_ao, 1.6, 0.0))
+            vec(nm, T.L[i, k], 4, MAXL)
+        one("ambient", self.ambient)
+        one("camfwd", (*T.camfwd[i], 0.0))
+        one("fadepar", self.fade)
+        one("fogpar", self.fog)
+        one("bgcol", self.bg)
+        one("lookpar", (self.s.look.rough, self.use_ao, 1.6, 0.0))
 
     def _draw_scene(self, tag, vp, T, i, mode, extra=None, rigid=None, skin=None):
         st = self.st
@@ -904,10 +945,25 @@ class Renderer:
         S.depth_test_set("NONE"); S.depth_mask_set(False)
         invvp = np.linalg.inv(vp)
 
+        def mask_setup(sh):
+            self._light_uniforms(sh, T, i)
+            sh.uniform_sampler("gb0", self.gb0); sh.uniform_sampler("gb1", self.gb1); sh.uniform_sampler("gdepth", self.gdepth)
+            sh.uniform_float("campos", (*T.campos[i], 1.0 if T.ortho else 0.0))
+            sh.uniform_float("invvp", _mat(invvp))
+            sh.uniform_float("projpar", (*T.projpar[i], 0.0))
+        self._fs("mask", self.fb_mask, (W + 1) // 2, (H + 1) // 2, mask_setup)
+        self._fs("maskblur", self.fb_maskb, (W + 1) // 2, (H + 1) // 2, lambda sh: (
+            sh.uniform_sampler("t_mask0", self.mask0), sh.uniform_sampler("t_mask1", self.mask1), sh.uniform_sampler("gb1", self.gb1),
+            sh.uniform_sampler("gdepth", self.gdepth), sh.uniform_float("campos", (*T.campos[i], 1.0 if T.ortho else 0.0)),
+            sh.uniform_float("invvp", _mat(invvp))))
+        self._tic("shadow mask", t0)
+        t0 = time.perf_counter()
+
         def res_setup(sh):
             self._light_uniforms(sh, T, i)
             sh.uniform_sampler("objtex", self.objtex)
             sh.uniform_sampler("gb0", self.gb0); sh.uniform_sampler("gb1", self.gb1); sh.uniform_sampler("gdepth", self.gdepth)
+            sh.uniform_sampler("t_mask0", self.mask0b); sh.uniform_sampler("t_mask1", self.mask1b)
             sh.uniform_float("campos", (*T.campos[i], 1.0 if T.ortho else 0.0))
             sh.uniform_float("invvp", _mat(invvp)); sh.uniform_float("vp", _mat(vp)); sh.uniform_float("nextvp", _mat(T.nextvp[i]))
             sh.uniform_float("projpar", (*T.projpar[i], 0.0))
@@ -1003,8 +1059,10 @@ class Renderer:
                          lambda sh: (sh.uniform_sampler("t_in", color), sh.uniform_float("dofpar", par)))
                 for which in (0, 1):
                     src = color if which == 0 else glow
-                    dst = free.pop()
-                    self._fs("dof", dst[1], W, H, lambda sh, src=src: (sh.uniform_sampler("t_in", src), sh.uniform_sampler("t_tile", self.coctile),
+                    mid, dst = self.dofmid, free.pop()
+                    self._fs("dof", mid[1], W, H, lambda sh, src=src: (sh.uniform_sampler("t_in", src), sh.uniform_sampler("t_tile", self.coctile),
+                                                                    sh.uniform_float("dofpar", par)))
+                    self._fs("dofsmooth", dst[1], W, H, lambda sh: (sh.uniform_sampler("t_in", mid[0]), sh.uniform_sampler("t_tile", self.coctile),
                                                                     sh.uniform_float("dofpar", par)))
                     if which == 0:
                         color = dst[0]

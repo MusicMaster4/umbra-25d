@@ -290,7 +290,9 @@ def _live_render(cls, a):
     from umbra import live
     f0, f1, plan = _live_plan(cls, a)
     t0 = time.time()
-    s = _live_scene(cls, a["quality"], [f0, f0 + 1])
+    s = cls(quality=_live_q(a["quality"]), frames=[f0, f0 + 1], checks=False, capture=True)   # only to have the scene: it draws
+    s.build()                                                                                 # what the bake workers hand it
+    s._finalize()
     div = s.q.get("fps_div", 1)
     info = dict(_info(cls), frames=[f0, f1], jobs=a["jobs"], step=div)
     print("UMBRA_INFO " + json.dumps(info))

@@ -224,12 +224,46 @@ The rest is the samples: about 11 ms each, 32 per frame. Two opt-in switches tra
 level), and `--gpu-backend vulkan` was 14–21 % faster per frame than OpenGL here (up to 7 levels of difference on
 0.3 % of pixels; its first frame takes about 7 s longer).
 
+## Fast mode
+
+`--fast` (on `render`, `still` and `sheet`) draws the film with umbra's own real-time renderer instead of EEVEE.
+Measured on the same machine (RTX 3070, 12-core CPU, quiet), 1080p, 30 fps:
+
+| film | `render --fast`, start to finished mp4 |
+|---|---|
+| the eleven gallery films, one after another | 171 s in total |
+| a typical 20 s film (`03_dinner_date`, 600 frames) | 16.6 s, of which 14 ms per frame is drawing |
+| quickest / slowest 20 s film | 12.3 s (`10_orbit`) / 24.4 s (`09_penalty`, 11 s of it building the crowd) |
+
+The normal render of `03_dinner_date` runs at 0.55–0.60 s per frame, about 5.5 minutes for the film, so `--fast` is
+roughly 20 times quicker end to end. Per frame it is about 40 times quicker; the rest is fixed cost (starting Blender,
+building the scene) that a 20 s film cannot amortise.
+
+How it works:
+
+- The bake is kept as arrays instead of f-curves. A dozen CPU-only processes bake the film in 40-frame chunks while
+  one process draws them in order and pipes the frames to a single encoder.
+- The whole scene is one vertex buffer and one table of per-object values per frame (transform, colour, glow,
+  bones for the people), so a frame is a few dozen draw calls whatever the scene holds.
+- Geometry is rasterised at 4x4 samples per pixel into a small G-buffer; one pass groups each pixel's samples into
+  surfaces and lights each surface once. Soft shadows and ambient occlusion are computed at half resolution and
+  filtered back up across each surface. Then see-through things, reflections on glossy surfaces, depth of field,
+  motion blur, bloom, lens fringe, the 2D overlay, grain.
+- Frames leave the GPU as NV12 and are encoded by NVENC when it is there (x264 otherwise, `--x264`).
+
+What it is not: the EEVEE picture. It follows the same materials, lights, units and post chain, and
+`out/compare/` side-by-sides of the gallery are close, but it has no bounced light, its soft shadows, occlusion,
+blur and reflections are its own approximations, and at most 40 lights are lit per frame (4 spot and 2 point
+lights of them with shadows). It draws what umbra built: `on_frame` hooks that edit Blender data and anything
+animated by a Blender modifier are ignored. Tested on Blender 5.2 with an NVIDIA card only.
+
 ## CLI
 
 ```
 python -m umbra sheet  scene.py [-n 12] [-t T ...] [--range T0 T1] [--cols 4] [--scale 0.25]
 python -m umbra still  scene.py -t T [-t T ...] [-q draft|preview|fast|final|ultra]
 python -m umbra render scene.py [-q final] [-j 2] [--range T0 T1] [--resume] [--nvenc] [--safe] [--gpu-backend vulkan]
+python -m umbra render scene.py --fast [--x264]   # umbra's real-time renderer; also `sheet --fast`, `still --fast`
 python -m umbra lint   scene.py        # build + every check, no rendering, no GPU
 python -m umbra blend  scene.py
 python -m umbra api    [word]          # method signatures + docstrings, e.g. `api trail` (also in docs/API.md)

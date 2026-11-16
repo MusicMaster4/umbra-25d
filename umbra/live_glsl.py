@@ -9,7 +9,7 @@ Material kinds (vertex attribute misc.y):
 OT = 16          # texels per object in the object table
 OT_ROW = 64      # objects per table row (table width = OT * OT_ROW)
 BT_ROW = 340     # bones per bone-table row (3 texels each, width 1020)
-MAXL = 24        # lights per frame
+MAXL = 40        # lights per frame
 MAXSPOT = 4      # spot / area lights with a shadow map
 MAXPOINT = 2     # point lights with a shadow cube
 
@@ -18,6 +18,7 @@ COMMON = """
 #define OT_ROW %(OT_ROW)d
 #define BT_ROW %(BT_ROW)d
 #define MAXL %(MAXL)d
+#define MAXSPOT %(MAXSPOT)d
 #define PI 3.14159265358979
 
 vec4 ot(sampler2D t, int id, int k) { return texelFetch(t, ivec2((id %% OT_ROW) * OT + k, id / OT_ROW), 0); }
@@ -71,7 +72,7 @@ float fbm(vec3 p, int oct) {
 float water_h(vec2 xy, float phase, float waves, float wl) {
   return (fbm(vec3(xy / max(wl, 0.5), phase * 0.6), 2) - 0.5) * waves * 2.4;
 }
-""" % dict(OT=OT, OT_ROW=OT_ROW, BT_ROW=BT_ROW, MAXL=MAXL)
+""" % dict(OT=OT, OT_ROW=OT_ROW, BT_ROW=BT_ROW, MAXL=MAXL, MAXSPOT=MAXSPOT)
 
 # ---------------------------------------------------------------------------------------------------------------
 # Geometry: one vertex shader for every pass that draws the scene (G-buffer, shadow maps, forward transparents).
@@ -185,19 +186,27 @@ float sun_cascade(int c, vec3 P, vec3 N, vec3 L, vec2 px, out float edge) {
   edge = smoothstep(0.0, 0.06, min(e.x, e.y));         /* 0 at the border of this map */
   if (edge <= 0.0 || uvz.z >= 1.0 || uvz.z <= 0.0) { edge = 0.0; return 1.0; }
   mat2 R = rot2(ign(px) * 6.2831853);
+  /* a tap away from the centre looks at the surface where it is that much nearer or farther from the light: the
+     bias has to grow with the tap's distance and the surface's slope, or slopes shadow themselves */
+  float nl = clamp(dot(N, L), 0.0, 1.0);
+  mat4 M = sunvp[c];
+  float slope = min(sqrt(1.0 - nl * nl) / max(nl, 0.08), 10.0)
+                * length(vec3(M[0][2], M[1][2], M[2][2])) / length(vec3(M[0][0], M[1][0], M[2][0]));
   /* blocker search: how far in front of the surface the casters are sets the width of the penumbra */
   float zr = uvz.z, sr = par.x;
   float bs = 0.0, bn = 0.0;
   for (int i = 0; i < 16; i++) {
-    float z = textureLod(sunmap, vec3(uvz.xy + R * VOGEL16[i] * sr, float(c)), 0.0).r;
-    if (z < zr - par.w) { bs += z; bn += 1.0; }
+    vec2 o = R * VOGEL16[i] * sr;
+    float z = textureLod(sunmap, vec3(uvz.xy + o, float(c)), 0.0).r;
+    if (z < zr - par.w - length(o) * slope) { bs += z; bn += 1.0; }
   }
   if (bn < 0.5) return 1.0;
   float pen = clamp((zr - bs / bn) * par.y, 0.0, 1.0) * sr + 0.75 / float(textureSize(sunmap, 0).x);
   float lit = 0.0;
   for (int i = 0; i < 24; i++) {
-    float z = textureLod(sunmap, vec3(uvz.xy + R * VOGEL24[i] * pen, float(c)), 0.0).r;
-    lit += z < zr - par.w ? 0.0 : 1.0;
+    vec2 o = R * VOGEL24[i] * pen;
+    float z = textureLod(sunmap, vec3(uvz.xy + o, float(c)), 0.0).r;
+    lit += z < zr - par.w - length(o) * slope ? 0.0 : 1.0;
   }
   return lit / 24.0;
 }
@@ -213,7 +222,7 @@ float sun_shadow(vec3 P, vec3 N, vec3 L, vec2 px) {    /* a tight map around the
 /* distance from a local light to the first thing it sees towards world point q (metres; 1e9 = nothing) */
 float local_depth(int code, vec3 q, vec3 lpos) {
   if (code < 8) {                                      /* spot / area: one perspective map */
-    vec4 sp = spotvp[code] * vec4(q, 1.0);
+    vec4 sp = spotvp[clamp(code, 0, MAXSPOT - 1)] * vec4(q, 1.0);
     if (sp.w <= 0.0) return 1e9;
     vec2 uv = sp.xy / sp.w * 0.5 + 0.5;
     if (uv.x <= 0.0 || uv.x >= 1.0 || uv.y <= 0.0 || uv.y >= 1.0) return 1e9;
@@ -239,13 +248,15 @@ float local_shadow(int code, vec3 P, vec3 N, vec3 lpos, float radius, vec2 px) {
   vec3 t2 = cross(dn, t1);
   mat2 R = rot2(ign(px + 17.0 + float(code) * 7.0) * 6.2831853);
   float bias = 0.03 + 0.012 * dist;
+  float nl = clamp(dot(N, -dn), 0.0, 1.0);
+  float slope = min(sqrt(1.0 - nl * nl) / max(nl, 0.08), 10.0);
   float search = clamp(radius * 2.5 + 0.02 * dist, 0.02, 0.4 * dist);
   float bs = 0.0, bn = 0.0;
   for (int i = 0; i < 16; i += 2) {
     vec2 o = R * VOGEL16[i] * search;
     vec3 q = Q + t1 * o.x + t2 * o.y;
     float z = local_depth(code, q, lpos);
-    if (z < length(q - lpos) - bias) { bs += z; bn += 1.0; }
+    if (z < length(q - lpos) - bias - length(o) * slope) { bs += z; bn += 1.0; }
   }
   if (bn < 0.5) return 1.0;
   float db = bs / bn;
@@ -254,9 +265,23 @@ float local_shadow(int code, vec3 P, vec3 N, vec3 lpos, float radius, vec2 px) {
   for (int i = 0; i < 24; i++) {
     vec2 o = R * VOGEL24[i] * pen;
     vec3 q = Q + t1 * o.x + t2 * o.y;
-    lit += local_depth(code, q, lpos) < length(q - lpos) - bias ? 0.0 : 1.0;
+    lit += local_depth(code, q, lpos) < length(q - lpos) - bias - length(o) * slope ? 0.0 : 1.0;
   }
   return lit / 24.0;
+}
+
+/* Shadow of the light in shadow slot `slot` (0 sun, 1-4 spots, 9-10 points). The resolve pass reads it from the
+   half-resolution mask (g_sh, filled per surface); everything else works it out on the spot. */
+#ifdef USE_MASK
+float g_sh[7];
+#endif
+float shadow_of(int slot, vec3 P, vec3 N, vec3 L, vec3 lpos, float radius, vec2 px) {
+#ifdef USE_MASK
+  return g_sh[clamp(slot >= 9 ? slot - 4 : slot, 0, 6)];
+#else
+  if (slot == 0) return sun_shadow(P, N, L, px);
+  return local_shadow(max(slot - 1, 0), P, N, lpos, radius, px);
+#endif
 }
 
 float ggx(float nh, float a) { float a2 = a * a; float d = nh * nh * (a2 - 1.0) + 1.0; return a2 / (PI * d * d + 1e-7); }
@@ -279,7 +304,7 @@ vec3 lit_surface(vec3 P, vec3 N, vec3 V, vec3 albedo, float rough, float spec, f
     if (lp.w < 0.5) {                                  /* sun */
       L = lp.xyz;
       if (dot(N, L) <= 0.0) continue;
-      if (slot == 0) sh = sun_shadow(P, N, L, px);
+      if (slot == 0) sh = shadow_of(0, P, N, L, vec3(0.0), 0.0, px);
     } else {
       vec3 d = lp.xyz - P;
       float d2 = dot(d, d);
@@ -293,9 +318,9 @@ vec3 lit_surface(vec3 P, vec3 N, vec3 V, vec3 albedo, float rough, float spec, f
         float z = dot(-L, ld.xyz);
         att *= lp.w > 2.5 ? max(z, 0.0) : smoothstep(0.0, 1.0, (z - ld.w) / max(lq.x, 1e-4));
         if (att <= 0.0) continue;
-        if (slot >= 1 && slot < 9) sh = local_shadow(slot - 1, P, N, lp.xyz, lc.w, px);
+        if (slot >= 1 && slot < 9) sh = shadow_of(slot, P, N, L, lp.xyz, lc.w, px);
       } else if (slot >= 9) {
-        sh = local_shadow(slot - 1, P, N, lp.xyz, lc.w, px);
+        sh = shadow_of(slot, P, N, L, lp.xyz, lc.w, px);
       }
     }
     if (sh <= 0.0) continue;
@@ -384,7 +409,7 @@ void shade(int id, int kind, bool emits, vec3 base, vec3 P, vec3 N, float ao, ve
 
 # Resolve: SSxSS geometry samples per pixel are grouped into surfaces, each surface is lit once, and the results
 # are blended by coverage (what MSAA does, written out by hand). Outputs: colour, glow, aux (view depth, velocity).
-RESOLVE_FRAG = COMMON + LIGHTING + """
+RECON = """
 vec3 world_at(vec2 fpx, float depth) {                 /* fpx: position in G-buffer pixels */
   vec4 ndc = vec4(fpx / vec2(textureSize(gdepth, 0)) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
   vec4 w = invvp * ndc;
@@ -408,6 +433,104 @@ float occlusion(vec3 P, vec3 N, ivec2 p, vec2 px) {
     occ += max(dot(N, v / max(l, 1e-4)) - 0.12, 0.0) * (1.0 - smoothstep(lookpar.z * 0.5, lookpar.z, l));
   }
   return clamp(1.0 - occ / 12.0 * 1.6, 0.0, 1.0);
+}
+"""
+
+# Shadows and ambient occlusion, once per 2x2 pixels: m0 = (sun, spot 1-3), m1 = (spot 4, point 1-2, occlusion).
+# The soft-shadow taps are the expensive part of lighting; here they run on a quarter of the pixels, and the
+# resolve pass filters the result back up across each surface (which also takes their grain away).
+MASK_FRAG = COMMON + LIGHTING + RECON + """
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy) * (2 * SS) + ivec2(SS);
+  p = min(p, textureSize(gdepth, 0) - 1);
+  m0 = vec4(1.0); m1 = vec4(1.0);
+  float d = texelFetch(gdepth, p, 0).r;
+  if (d >= 1.0) return;
+  int kind = int(texelFetch(gb0, p, 0).a * 255.0 + 0.5) & 63;
+  if (!(kind <= 4 || kind == 12)) return;
+  vec3 N = oct_decode(texelFetch(gb1, p, 0).rg);
+  vec3 P = world_at(vec2(p) + 0.5, d);
+  float sh[7] = float[7](1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0);
+  for (int i = 0; i < nlights; i++) {
+    int slot = int(L_par[i].y + 0.5) - 1;
+    if (slot < 0) continue;
+    vec4 lp = L_pos[i];
+    if (lp.w < 0.5) {
+      sh[0] = dot(N, lp.xyz) > 0.0 ? sun_shadow(P, N, lp.xyz, gl_FragCoord.xy) : 0.0;
+    } else {
+      vec3 dv = lp.xyz - P;
+      if (dot(dv, dv) > L_par[i].w * L_par[i].w) continue;
+      sh[clamp(slot >= 9 ? slot - 4 : slot, 0, 6)] = dot(N, dv) > 0.0 ? local_shadow(slot - 1, P, N, lp.xyz, L_col[i].w, gl_FragCoord.xy) : 0.0;
+    }
+  }
+  m0 = vec4(sh[0], sh[1], sh[2], sh[3]);
+  m1 = vec4(sh[4], sh[5], sh[6], occlusion(P, N, p, gl_FragCoord.xy));
+}
+"""
+
+# Soft-shadow taps leave grain in the mask; this spreads each value over its neighbours on the same surface
+# (13 taps in a 5x5 diamond, weighted by distance to the surface's plane and by normal).
+MASKBLUR_FRAG = COMMON + """
+vec3 world_at(vec2 fpx, float depth) {
+  vec4 ndc = vec4(fpx / vec2(textureSize(gdepth, 0)) * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);
+  vec4 w = invvp * ndc;
+  return w.xyz / w.w;
+}
+void main() {
+  ivec2 q0 = ivec2(gl_FragCoord.xy);
+  ivec2 lim = textureSize(t_mask0, 0) - 1, glim = textureSize(gdepth, 0) - 1;
+  ivec2 g0 = min(q0 * (2 * SS) + ivec2(SS), glim);
+  float d0 = texelFetch(gdepth, g0, 0).r;
+  vec4 c0 = texelFetch(t_mask0, q0, 0), c1 = texelFetch(t_mask1, q0, 0);
+  m0 = c0; m1 = c1;
+  if (d0 >= 1.0) return;
+  vec3 P = world_at(vec2(g0) + 0.5, d0);
+  vec3 N = oct_decode(texelFetch(gb1, g0, 0).rg);
+  float tol = 0.02 + 0.012 * length(P - campos.xyz);
+  vec4 a0 = c0 * 2.0, a1 = c1 * 2.0; float ws = 2.0;
+  for (int j = -2; j <= 2; j++) for (int i = -2; i <= 2; i++) {
+    if ((i == 0 && j == 0) || abs(i) + abs(j) > 2) continue;
+    ivec2 q = clamp(q0 + ivec2(i, j), ivec2(0), lim);
+    ivec2 gp = min(q * (2 * SS) + ivec2(SS), glim);
+    float d = texelFetch(gdepth, gp, 0).r;
+    if (d >= 1.0) continue;
+    float pd = abs(dot(world_at(vec2(gp) + 0.5, d) - P, N));
+    float nn = max(dot(oct_decode(texelFetch(gb1, gp, 0).rg), N), 0.0);
+    float w = exp(-pd * pd / (tol * tol)) * nn * nn * nn * nn * (abs(i) + abs(j) == 1 ? 1.5 : 1.0);
+    a0 += texelFetch(t_mask0, q, 0) * w; a1 += texelFetch(t_mask1, q, 0) * w; ws += w;
+  }
+  m0 = a0 / ws; m1 = a1 / ws;
+}
+"""
+
+RESOLVE_FRAG = COMMON + LIGHTING + RECON + """
+float g_ao;
+/* The mask values for one surface: its 3x3 neighbours in the mask, weighted by how well each lies on this surface. */
+void fetch_mask(vec3 P, vec3 N, ivec2 rep) {
+  vec2 h = (vec2(rep) + 0.5) / float(2 * SS) - 0.5;
+  ivec2 c = ivec2(floor(h + 0.5));
+  ivec2 lim = textureSize(t_mask0, 0) - 1, glim = textureSize(gdepth, 0) - 1;
+  float tol = 0.02 + 0.012 * length(P - campos.xyz);
+  vec4 a0 = vec4(0.0), a1 = vec4(0.0), n0 = vec4(1.0), n1 = vec4(1.0);
+  float ws = 0.0, best = 1e9;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    ivec2 q = clamp(c + ivec2(i, j), ivec2(0), lim);
+    ivec2 gp = min(q * (2 * SS) + ivec2(SS), glim);
+    float d = texelFetch(gdepth, gp, 0).r;
+    if (d >= 1.0) continue;
+    vec3 Ns = oct_decode(texelFetch(gb1, gp, 0).rg);
+    float pd = abs(dot(world_at(vec2(gp) + 0.5, d) - P, N));
+    float nn = max(dot(Ns, N), 0.0);
+    vec2 dq = vec2(q) - h;
+    float w = exp(-pd * pd / (tol * tol)) * nn * nn * nn * nn * exp(-dot(dq, dq) * 0.6);
+    vec4 x0 = texelFetch(t_mask0, q, 0), x1 = texelFetch(t_mask1, q, 0);
+    a0 += x0 * w; a1 += x1 * w; ws += w;
+    float miss = pd / tol + (1.0 - nn) * 4.0 + dot(dq, dq) * 0.1;
+    if (miss < best) { best = miss; n0 = x0; n1 = x1; }
+  }
+  if (ws > 1e-3) { a0 /= ws; a1 /= ws; } else { a0 = n0; a1 = n1; }
+  g_sh[0] = a0.x; g_sh[1] = a0.y; g_sh[2] = a0.z; g_sh[3] = a0.w; g_sh[4] = a1.x; g_sh[5] = a1.y; g_sh[6] = a1.z;
+  g_ao = a1.w;
 }
 
 void main() {
@@ -445,7 +568,8 @@ void main() {
     vec3 P = world_at(vec2(crep[c]) + 0.5, cdep[c]);
     int kind = ckind[c] & 63;
     vec3 basec = cc[c] * cc[c];
-    float ao = (kind <= 4 || kind == 12) ? occlusion(P, cn[c], crep[c], gl_FragCoord.xy) : 1.0;
+    float ao = 1.0;
+    if (kind <= 4 || kind == 12) { fetch_mask(P, cn[c], crep[c]); ao = g_ao; }
     vec3 c_, g_;
     shade(cid[c], kind, (ckind[c] & 64) != 0, basec, P, cn[c], ao, gl_FragCoord.xy, c_, g_);
     float w = float(cnt[c]) * inv;
@@ -582,6 +706,35 @@ void main() {
     acc += c.rgb * w; wsum += w;
   }
   o_color = vec4(acc / max(wsum, 1e-6), z0);
+}
+"""
+
+# The gather above turns its sample pattern per pixel, which leaves a fine dither in blurred areas. This pass
+# averages each blurred pixel with its neighbours (a 3x3 tent, wider where the blur is wide); sharp pixels pass through.
+DOFSMOOTH_FRAG = """
+float coc_of(float z) { return min(abs(z - dofpar.x) / max(z, 1e-4) * dofpar.y, dofpar.z); }
+
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec2 isz = 1.0 / vec2(textureSize(t_in, 0));
+  vec4 c0 = texelFetch(t_in, p, 0);
+  float r0 = coc_of(c0.a);
+  ivec2 tl = textureSize(t_tile, 0) - 1;
+  float rmax = 0.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++)
+    rmax = max(rmax, texelFetch(t_tile, clamp(p / 16 + ivec2(i, j), ivec2(0), tl), 0).r);
+  if (rmax < 0.6) { o_color = c0; return; }
+  float step_ = clamp(max(r0, rmax * 0.35) * 0.35, 0.75, 2.5);
+  vec3 acc = vec3(0.0); float ws = 0.0;
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+    vec4 c = textureLod(t_in, (gl_FragCoord.xy + vec2(i, j) * step_) * isz, 0.0);
+    float rc = coc_of(c.a);
+    /* blurred neighbours spread into this pixel; a sharp pixel only takes them if it is behind them */
+    float w = (i == 0 && j == 0) ? 1.0 : clamp(max(rc, c.a < c0.a ? rc : min(rc, r0)) - 0.5, 0.0, 1.0);
+    w *= (i == 0 ? 2.0 : 1.0) * (j == 0 ? 2.0 : 1.0);
+    acc += c.rgb * w; ws += w;
+  }
+  o_color = vec4(acc / ws, c0.a);
 }
 """
 
@@ -822,7 +975,7 @@ void main() {
                      + texelFetch(t_in, b + ivec2(0, 1), 0).rgb + texelFetch(t_in, b + ivec2(1, 1), 0).rgb);
     v = 128.0 + 224.0 * ((fc.x & 1) == 0 ? dot(c, vec3(-0.114572, -0.385428, 0.5)) : dot(c, vec3(0.5, -0.454153, -0.045847)));
   }
-  v += (rnd(gl_FragCoord.xy, grainpar.y) - 0.5) * grainpar.x;
+  v += (rnd(gl_FragCoord.xy, grainpar.y) - 0.5) * grainpar.x * (fc.y < H ? 0.7 : 0.3);
   o_color = vec4(clamp(v, 0.0, 255.0) / 255.0, 0.0, 0.0, 1.0);
 }
 """

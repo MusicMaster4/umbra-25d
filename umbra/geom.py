@@ -326,7 +326,7 @@ class Mesh:
         return self
 
     # ------------------------------------------------------------------ output
-    def build(self, name="mesh", ink=False, ink_angle=28.0, ink_color="#f2f2f2", uv=None, recalc=False):
+    def build(self, name="mesh", ink=False, ink_angle=28.0, ink_color="#f2f2f2", uv=None, recalc=False, outward=True):
         """-> bpy mesh. ink=True adds outline geometry (material slots: 0 fill, 1 ink, 2 ink hull)."""
         import bpy
         verts = np.concatenate(self.v) if self.v else np.zeros((0, 3))
@@ -340,10 +340,22 @@ class Mesh:
             fpaint, femit, fsmooth = [fpaint[i] for i in keep], [femit[i] for i in keep], [fsmooth[i] for i in keep]
         n_fill = len(faces)
         ink_d = None
-        if n_fill:
-            faces = _outward(verts, faces)
+        n_tube = 0
+        # the two slow steps (per-face Python) are remembered on disk, keyed by the geometry itself: every render
+        # process builds the same meshes, run after run
+        slow = n_fill and ((outward and n_fill > 1500) or ink)
+        key = _build_key(verts, faces, fsmooth, ink, ink_angle, outward) if slow else None
+        hit = _build_cache(key) if key else None
+        if hit is not None:
+            verts, faces, ink_d, n_tube = hit
+        else:
+            if n_fill and outward:
+                faces = _outward(verts, faces)
+            if ink and n_fill:
+                verts, faces, ink_d, n_tube = _add_ink(verts, faces, ink_angle, fsmooth)
+            if key:
+                _build_cache(key, (verts, faces, ink_d, n_tube))
         if ink and n_fill:
-            verts, faces, ink_d, n_tube = _add_ink(verts, faces, ink_angle, fsmooth)
             extra = len(faces) - n_fill
             fpaint += [lin(ink_color)] * extra; femit += [0.0] * extra; fsmooth += [True] * extra
         me = bpy.data.meshes.new(name)
@@ -369,6 +381,46 @@ class Mesh:
             layer.data.foreach_set("uv", np.asarray(uv, dtype=np.float32)[li].ravel())
         me.update()
         return me
+
+
+def _build_key(verts, faces, fsmooth, ink, ink_angle, outward):
+    import hashlib
+    h = hashlib.sha1()
+    h.update(np.ascontiguousarray(verts, dtype=np.float64).tobytes())
+    h.update(np.fromiter((len(f) for f in faces), dtype=np.int32, count=len(faces)).tobytes())
+    h.update(np.fromiter((i for f in faces for i in f), dtype=np.int64).tobytes())
+    h.update(np.asarray(fsmooth, dtype=np.bool_).tobytes())
+    h.update(repr((bool(ink), float(ink_angle), bool(outward), 2)).encode())
+    return h.hexdigest()[:24]
+
+
+def _build_cache(key, value=None):
+    import os, pickle, tempfile
+    path = os.path.join(tempfile.gettempdir(), "umbra_cache", "mesh_" + key + ".pkl")
+    try:
+        if value is None:
+            if not os.path.exists(path):
+                return None
+            with open(path, "rb") as fh:
+                verts, sizes, flat, ink_d, n_tube = pickle.load(fh)
+            flat = flat.tolist()
+            faces, k = [], 0
+            for n in sizes.tolist():
+                faces.append(tuple(flat[k:k + n]))
+                k += n
+            return verts, faces, ink_d, n_tube
+        verts, faces, ink_d, n_tube = value
+        if len(verts) > 3_000_000:
+            return None
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".%d.tmp" % os.getpid()
+        with open(tmp, "wb") as fh:
+            pickle.dump((verts, np.fromiter((len(f) for f in faces), dtype=np.int32, count=len(faces)),
+                         np.fromiter((i for f in faces for i in f), dtype=np.int64), ink_d, n_tube), fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+    return None
 
 
 def _outward(verts, faces):

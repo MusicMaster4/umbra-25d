@@ -13,6 +13,7 @@ Pose values are degrees, positive = forward / outward / up:
     foot_l/r (toes up)   hand_l/hand_r (x, y, z): IK target in chest space (x right, y forward, z up from waist)
 """
 import math
+import os
 import numpy as np
 from .geom import Mesh
 from .node import Node, LightNode
@@ -748,6 +749,10 @@ def assemble(build="man", hair="short", hat=None, outfit=None, lod=False, bare=F
     from . import body
     key = (build, hair, hat, outfit, lod, bare)
     if key not in _ASM:
+        cached = _asm_cache(key)
+        if cached is not None:
+            _ASM[key] = cached
+            return cached
         b = body.load(body.BUILD_BODY.get(build, "male"), lod)
         sk, bones = b["sk"], b["bones"]
         sv = body.shaped(b, build)
@@ -773,7 +778,33 @@ def assemble(build="man", hair="short", hat=None, outfit=None, lod=False, bare=F
             faces = faces + [tuple(base + i for i in f) for f in m.f]
             base += len(pv)
         _ASM[key] = (np.concatenate(vs), faces, np.concatenate(ws), bones, sk, rest)
+        _asm_cache(key, _ASM[key])
     return _ASM[key]
+
+
+def _asm_cache(key, value=None):
+    """Assembled bodies kept on disk between runs (every render process builds the same few bodies). The file name
+    carries the time stamps of the code and assets that make a body, so a change to any of them starts afresh."""
+    import hashlib, pickle, tempfile
+    try:
+        here = os.path.dirname(os.path.abspath(__file__))
+        deps = [os.path.join(here, f) for f in ("people.py", "body.py", "geom.py", "xform.py")]
+        deps += [os.path.join(here, "assets", f) for f in sorted(os.listdir(os.path.join(here, "assets")))]
+        tag = hashlib.sha1(repr((key, [(d, os.path.getmtime(d), os.path.getsize(d)) for d in deps])).encode()).hexdigest()[:20]
+        path = os.path.join(tempfile.gettempdir(), "umbra_cache", "body_" + tag + ".pkl")
+        if value is None:
+            if os.path.exists(path):
+                with open(path, "rb") as fh:
+                    return pickle.load(fh)
+            return None
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        tmp = path + ".%d.tmp" % os.getpid()
+        with open(tmp, "wb") as fh:
+            pickle.dump(value, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(tmp, path)
+    except Exception:
+        pass
+    return None
 
 
 def figure_mesh(pose="stand", build="man", hair="short", hat=None, outfit=None, lod=False, **over):
@@ -795,16 +826,20 @@ def _bpy_body(scene, key):
         v, faces, W, bones, sk, rest = assemble(*key[:4], bare=key[4] not in ("flat", "fill"))
         m = Mesh()
         m._add(v, faces, smooth=True)
-        me = m.build("body_" + "_".join(str(k) for k in key if k))
-        bm = bmesh.new()
-        bm.from_mesh(me)
-        dl = bm.verts.layers.deform.verify()
-        bm.verts.ensure_lookup_table()
-        rows, cols = np.nonzero(W > 1e-4)
-        for i, j in zip(rows.tolist(), cols.tolist()):
-            bm.verts[i][dl][j] = float(W[i, j])
-        bm.to_mesh(me)
-        bm.free()
+        # The live renderer skins on the GPU from W itself: no vertex groups needed, and an unlit silhouette does not
+        # care which way its faces wind (nothing is culled, nothing is shaded).
+        live = getattr(scene, "_capture", False)
+        me = m.build("body_" + "_".join(str(k) for k in key if k), outward=not (live and key[4] in ("flat", "fill")))
+        if not live:
+            bm = bmesh.new()
+            bm.from_mesh(me)
+            dl = bm.verts.layers.deform.verify()
+            bm.verts.ensure_lookup_table()
+            rows, cols = np.nonzero(W > 1e-4)
+            for i, j in zip(rows.tolist(), cols.tolist()):
+                bm.verts[i][dl][j] = float(W[i, j])
+            bm.to_mesh(me)
+            bm.free()
         cache[key] = (me, bones, sk, rest)
         scene.__dict__.setdefault("_skin_weights", {})[me.as_pointer()] = (W, list(bones))    # for the live renderer
     return cache[key]
