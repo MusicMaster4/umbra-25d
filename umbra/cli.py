@@ -52,6 +52,9 @@ def run_blender(args, on_line=None, quiet=True):
     lines, err, in_err, tail = [], [], False, []
     for line in p.stdout:
         line = line.rstrip("\n")
+        k = line.find("UMBRA")
+        if k > 0:                                     # glued to the end of something Blender printed without a newline
+            line = line[k:]
         tail.append(line)
         tail[:] = tail[-25:]
         if line.startswith("UMBRA_ERROR_BEGIN"):
@@ -105,6 +108,74 @@ def _outdir(a):
     return d
 
 
+ENGINE = os.environ.get("UMBRA_ENGINE", "live")       # "live" = umbra's own real-time renderer, "eevee" = Blender's
+
+
+def cmd_render_live(a):
+    """Render through the live engine: bake workers on the CPU, one process drawing, one encoder."""
+    scene = os.path.abspath(a.scene)
+    d = _outdir(a)
+    fdir = os.path.join(d, ".frames", f"{_stem(scene)}_live")
+    shutil.rmtree(fdir, ignore_errors=True)
+    os.makedirs(fdir, exist_ok=True)
+    out = os.path.abspath(a.out or os.path.join(d, f"{_stem(scene)}{'' if a.quality == 'final' else '_' + a.quality}.mp4"))
+    ff = _ffmpeg()
+    if not ff:
+        sys.exit("umbra: ffmpeg was not found. Install ffmpeg (or `pip install imageio-ffmpeg`).")
+    workers = a.jobs if a.jobs_given else max(2, min(12, (os.cpu_count() or 4) // 2))
+    encoder = "x264slow" if a.x264 == "slow" else "x264" if (a.x264 or not _has_nvenc(ff)) else "nvenc"
+    base = {"scene": scene, "cls": a.cls, "quality": a.quality, "range": a.range, "jobs": workers, "dir": fdir, "chunk": a.chunk}
+    meta, errors, t0 = {}, [], time.time()
+    last = [t0]
+
+    def on_line(line):
+        if line.startswith("UMBRA_INFO ") and not meta:
+            meta.update(json.loads(line[len("UMBRA_INFO "):]))
+            print(f"rendering {meta['name']}  {meta['duration']:g}s @ {meta['fps']}fps  quality={a.quality}  engine=live  "
+                  f"bake workers={workers}  encoder={encoder}", flush=True)
+        elif line.startswith("UMBRA_FRAME"):
+            now = time.time()
+            if now - last[0] > a.progress:
+                last[0] = now
+                k, tot = line.split()[2].split("/")
+                print(f"  {k}/{tot} frames  {now - t0:.0f}s elapsed", flush=True)
+        elif line.startswith("UMBRA live:") and a.verbose:
+            print(line, flush=True)
+
+    def draw():
+        rc, lines, err = run_blender(dict(base, mode="live", out=out, ffmpeg=ff, encoder=encoder, crf=a.crf, grain=a.grain), on_line)
+        if rc != 0:
+            errors.append(err)
+
+    def bake(i):
+        rc, lines, err = run_blender(dict(base, mode="live_bake", job=i))
+        if rc != 0:
+            errors.append(err)
+            open(os.path.join(fdir, "stop"), "w").close()
+
+    threads = [threading.Thread(target=draw)] + [threading.Thread(target=bake, args=(i,)) for i in range(workers)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    shutil.rmtree(fdir, ignore_errors=True)
+    if errors:
+        _fail(errors[0])
+    if not a.range:
+        _print_flicker(out, meta.get("fps", 30))
+    print(out)
+    print(f"done in {time.time() - t0:.1f}s")
+
+
+def _has_nvenc(ff):
+    try:
+        r = subprocess.run([ff, "-hide_banner", "-loglevel", "error", "-f", "lavfi", "-i", "color=black:s=256x144:d=0.1", "-c:v", "h264_nvenc",
+                            "-f", "null", "-"], capture_output=True, timeout=20)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def cmd_still(a):
     scene = os.path.abspath(a.scene)
     times = a.t or [0.0]
@@ -112,7 +183,8 @@ def cmd_still(a):
     outs = [a.out if (a.out and len(times) == 1) else os.path.join(d, f"{_stem(scene)}_{t:06.2f}s.png") for t in times]
     outs = [os.path.abspath(o) for o in outs]
     t0 = time.time()
-    rc, lines, err = run_blender({"mode": "still", "scene": scene, "cls": a.cls, "quality": a.quality, "times": times, "outs": outs})
+    rc, lines, err = run_blender({"mode": "still", "scene": scene, "cls": a.cls, "quality": a.quality, "times": times, "outs": outs,
+                                  "engine": a.engine})
     if rc != 0:
         _fail(err)
     for o in outs:
@@ -129,7 +201,7 @@ def cmd_sheet(a):
     out = os.path.abspath(a.out or os.path.join(d, f"{_stem(scene)}_sheet.jpg"))
     t0 = time.time()
     rc, lines, err = run_blender({"mode": "sheet", "scene": scene, "cls": a.cls, "times": a.t, "n": a.n, "range": a.range,
-                                  "out": out, "cols": a.cols, "scale": a.scale,
+                                  "out": out, "cols": a.cols, "scale": a.scale, "engine": a.engine,
                                   "tmp": os.path.join(d, ".frames", _stem(scene) + "_sheet")})
     if rc != 0:
         _fail(err)
@@ -162,13 +234,15 @@ def cmd_blend(a):
 
 
 def cmd_render(a):
+    if a.engine == "live":
+        return cmd_render_live(a)
     scene = os.path.abspath(a.scene)
     d = _outdir(a)
     fdir = os.path.join(d, ".frames", f"{_stem(scene)}_{a.quality}")
     if os.path.isdir(fdir) and not a.resume:
         shutil.rmtree(fdir, ignore_errors=True)
     os.makedirs(fdir, exist_ok=True)
-    jobs = _fit_jobs(max(1, a.jobs))
+    jobs = _fit_jobs(max(1, a.jobs if a.jobs_given else 2))
     done, counts = [0] * jobs, [0] * jobs
     errors, meta = [], {}
     ready = set(int(os.path.basename(f)[2:7]) for f in glob.glob(os.path.join(fdir, "f_*.tif")))   # --resume
@@ -538,13 +612,20 @@ def main(argv=None):
         p.add_argument("--cls", help="Scene class name (default: last one in the file)")
         p.add_argument("-q", "--quality", default=q, choices=["draft", "preview", "fast", "final", "ultra"])
         p.add_argument("--gpu-backend", choices=["opengl", "vulkan"], help="Blender GPU backend (default: Blender's own)")
+        p.add_argument("-e", "--engine", choices=["live", "eevee"], default=ENGINE,
+                       help="live = umbra's own real-time renderer (default), eevee = Blender's EEVEE (slower, the reference picture)")
         p.add_argument("-o", "--out", help="output file")
         p.add_argument("--out-dir", help="output directory (default ./out)")
         p.add_argument("-v", "--verbose", action="store_true")
 
     p = sub.add_parser("render", help="render the mp4")
     common(p)
-    p.add_argument("-j", "--jobs", type=int, default=2, help="parallel Blender processes (default 2)")
+    p.add_argument("-j", "--jobs", type=int, default=None,
+                   help="parallel processes: bake workers for the live engine (default: half the CPU threads, at most 12), "
+                        "render jobs for eevee (default 2)")
+    p.add_argument("--chunk", type=int, default=40, help="live engine: frames per bake chunk")
+    p.add_argument("--x264", nargs="?", const="fast", default=None, choices=["fast", "slow"],
+                   help="live engine: encode with x264 on the CPU instead of NVENC (slow = the eevee path's settings)")
     p.add_argument("--range", type=float, nargs=2, metavar=("T0", "T1"), help="only this time span (seconds)")
     p.add_argument("--resume", action="store_true", help="keep already rendered frames")
     p.add_argument("--keep-frames", action="store_true")
@@ -589,6 +670,9 @@ def main(argv=None):
     p.set_defaults(fn=cmd_doctor)
 
     a = ap.parse_args(argv)
+    if hasattr(a, "jobs"):
+        a.jobs_given = a.jobs is not None
+        a.jobs = a.jobs if a.jobs is not None else 2
     if getattr(a, "gpu_backend", None):
         global GPU_BACKEND
         GPU_BACKEND = a.gpu_backend

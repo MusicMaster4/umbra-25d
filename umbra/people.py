@@ -806,6 +806,7 @@ def _bpy_body(scene, key):
         bm.to_mesh(me)
         bm.free()
         cache[key] = (me, bones, sk, rest)
+        scene.__dict__.setdefault("_skin_weights", {})[me.as_pointer()] = (W, list(bones))    # for the live renderer
     return cache[key]
 
 
@@ -901,6 +902,7 @@ class Person(Node):
         self.idle = idle
         self._seed = (len(scene._nodes) * 1.37) % 17
         me, bones, self.sk, self._rest = _bpy_body(scene, (build, hair, hat, outfit, mat))
+        self._bones = list(bones)
         self._arel = {b: np.linalg.inv(self._rest[b] if PARENT[b] is None else np.linalg.inv(self._rest[PARENT[b]]) @ self._rest[b])
                       for b in ORDER}
         self.part = {}
@@ -937,8 +939,13 @@ class Person(Node):
         if arm.pose is None or len(arm.pose.bones) == 0:        # pose channels appear on the first dependency-graph update
             self.scene.bscene.view_layers[0].update()
         locs, quats, prev = [], {k: [] for k in ORDER}, {}
+        live = hasattr(B, "skins")
+        inv_rest = {b: np.linalg.inv(self._rest[b]) for b in self._bones} if live else {}
+        skin = []
         for t in B.times:
             R = to_root(self.solve(t))
+            if live:
+                skin.append([R[b] @ inv_rest[b] for b in self._bones])
             for k in ORDER:
                 p = PARENT[k]
                 basis = self._arel[k] @ (R[k] if p is None else np.linalg.inv(R[p]) @ R[k])
@@ -956,6 +963,8 @@ class Person(Node):
             B.vec(arm, 'pose.bones["%s"].rotation_quaternion' % k, quats[k])
         arm.pose.bones["pelvis"].location = locs[0]
         B.vec(arm, 'pose.bones["pelvis"].location', locs)
+        if live:
+            B.skin(self.body.obj, self._bones, skin)
 
     # ------------------------------------------------------------------ posing
     def pose(self, spec=None, t=0.0, dur=0.5, ease="inout", mirror=False, **over):

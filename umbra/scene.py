@@ -7,7 +7,7 @@ from . import geom
 from .geom import Mesh
 from .node import Node, LightNode
 from .camera import Camera
-from .bake import Baker
+from .bake import Baker, Capture
 from .colors import lin
 from .look import get_look, setup_world, setup_lights, setup_render, setup_compositor
 from .materials import Materials
@@ -66,7 +66,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
     seed = 7
 
     # ------------------------------------------------------------------ setup
-    def __init__(self, quality="final", frames=None, film=False, checks=True):
+    def __init__(self, quality="final", frames=None, film=False, checks=True, capture=False):
         """frames: the frame numbers to bake (None = the whole film). film=True: `frames` is one chunk of a film render
         (see Baker). checks: True = run the clipping / staging checks on these frames, False = skip them (a render's
         frame jobs: one separate process checks the whole film instead), "film" = run them on the whole film."""
@@ -80,7 +80,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         self.rng = np.random.default_rng(self.seed)
         self._nodes, self._cuts, self._people, self._post, self._live = [], [], [], [], []
         self._frames = frames
-        self._film, self._checks = bool(film), checks
+        self._film, self._checks, self._capture = bool(film), checks, bool(capture)
 
         bpy.ops.wm.read_factory_settings(use_empty=True)
         self.bscene = bpy.context.scene
@@ -847,6 +847,11 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
             for m in bpy.data.materials:
                 m.use_transparent_shadow = True
 
+    def rebake(self, frames):
+        """Bake another set of frames on a scene that is already built and finalised (Capture bakes only)."""
+        self._frames = frames
+        return self._finalize()
+
     def _auto_cuts(self, times):
         """A camera that teleports without cam.cut() would smear across the frame; treat big jumps as cuts."""
         prev = None
@@ -862,15 +867,18 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         frames = self._frames
         if frames is None:
             frames = list(range(1, self.n_frames + 2))
-        self._warned = set()
+        first = not getattr(self, "_prepared", False)     # the live renderer bakes one chunk after another
+        self._prepared = True
+        self._warned = getattr(self, "_warned", set())
         self._auto_cuts([(float(f) - 1.0) / self.fps for f in sorted(frames)])
-        self._auto_layer()
-        if self.check_clipping and self._checks:
+        if first:
+            self._auto_layer()
+        if first and self.check_clipping and self._checks:
             try:
                 self._clip_check()
             except Exception as ex:                                  # a check must never stop a render
                 print("UMBRA_WARN clipping check skipped:", repr(ex))
-        B = Baker(self.fps, frames, self._cuts, film=(self.n_frames + 1) if self._film else None)
+        B = (Capture if self._capture else Baker)(self.fps, frames, self._cuts, film=(self.n_frames + 1) if self._film else None)
         for fn in self._post:              # things that need the final camera / targets (labels...)
             fn(B)
         for p in self._people:
@@ -897,6 +905,9 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 for nn, vals in (("ink_k", k), ("ink_k0", k0)):
                     nt.nodes[nn].outputs[0].default_value = vals[0]
                     B.scalar(nt, 'nodes["%s"].outputs[0].default_value' % nn, vals)
+        if not first:
+            self.baker = B
+            return self
         self._shadow_modes()
         from .look import aim_lights
         d = self.cam.pos.at(0.0) - self.cam.look.at(0.0)

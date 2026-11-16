@@ -90,6 +90,9 @@ class Baker:
         for i in range(arr.shape[1]):
             self.scalar(idb, path, arr[:, i], index=i, jumps=jumps)
 
+    def skin(self, body, bones, mats):
+        """A person's skinning matrices for every baked frame (only the live renderer wants them)."""
+
     @staticmethod
     def _static(idb, path, index, v):
         try:
@@ -103,3 +106,26 @@ class Baker:
                 setattr(idb, path, type(cur)(v) if isinstance(cur, bool) else v)
         except Exception:
             pass
+
+
+class Capture(Baker):
+    """Baker for the live renderer: keeps every sampled track as an array (one value per baked frame) instead of
+    writing f-curves. Values that never change are still written to the datablock, as in Baker."""
+
+    def __init__(self, fps, frames, cuts=(), film=None):
+        super().__init__(fps, frames, cuts, film)
+        self.curves = {}                     # (datablock pointer, rna path, index) -> float32 [frames]
+        self.skins = {}                      # body object pointer -> (bone names, float32 [frames, bones, 4, 4])
+
+    def scalar(self, idb, path, values, index=0, const=False, jumps=()):
+        vals = np.asarray(values, dtype=np.float32)
+        if len(vals) == 0:
+            return
+        if np.all(np.abs(vals - vals[0]) < 1e-7):
+            self._static(idb, path, index, float(vals[0]))
+            return
+        self.curves[(idb.as_pointer(), path, index)] = vals
+        self.count += 1
+
+    def skin(self, body, bones, mats):
+        self.skins[body.as_pointer()] = (list(bones), np.asarray(mats, dtype=np.float32))

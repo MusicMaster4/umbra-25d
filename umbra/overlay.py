@@ -202,6 +202,7 @@ class OverlayMixin:
                     if obj.data.body != full[:k]:
                         obj.data.body = full[:k]
                 self.on_frame(live)
+                self.__dict__.setdefault("_live_text", set()).add(obj.name)
             elif enter == "cut":
                 n.show(t)
             else:
@@ -271,6 +272,7 @@ class OverlayMixin:
             if obj.data.body != b:
                 obj.data.body = b
         self.on_frame(live)
+        self.__dict__.setdefault("_live_text", set()).add(obj.name)
         return g
 
     def clock(self, start="23:58:07", at="top_left", t=0.0, out=None, rate=1.0, style="mono", fmt="{h:02d}:{m:02d}:{s:02d}", **kw):

@@ -62,6 +62,29 @@ def _tiff(scene):
     im.color_mode, im.color_depth, im.tiff_codec = "RGB", "8", "NONE"
 
 
+_FONT5 = {"0": "111101101101111", "1": "010110010010111", "2": "111001111100111", "3": "111001111001111", "4": "101101111001001",
+          "5": "111100111001111", "6": "111100111101111", "7": "111001001001001", "8": "111101111101111", "9": "111101111001111",
+          ".": "000000000000010", "s": "000011100001110", "-": "000000111000000"}
+
+
+def _stamp(img, text):
+    """Burn a small time code into the bottom-left corner of a tile (3x5 dot digits, scaled to the tile)."""
+    img = img.copy()
+    k = max(2, img.shape[0] // 90)
+    x0, y0 = 3 * k, img.shape[0] - 8 * k
+    wbox = (4 * len(text) + 1) * k
+    img[y0 - k:y0 + 6 * k, x0 - k:x0 + wbox] = (img[y0 - k:y0 + 6 * k, x0 - k:x0 + wbox] * 0.45).astype(np.uint8)
+    for i, ch in enumerate(text):
+        bits = _FONT5.get(ch)
+        if bits is None:
+            continue
+        for j, b in enumerate(bits):
+            if b == "1":
+                yy, xx = y0 + (j // 3) * k, x0 + (i * 4 + j % 3) * k
+                img[yy:yy + k, xx:xx + k] = 255
+    return img
+
+
 def _info(cls):
     from umbra.look import get_look
     return {"name": cls.__name__, "duration": float(cls.duration), "fps": int(cls.fps),
@@ -194,6 +217,160 @@ def _render_frame(s, frame, path, overlay=None):
     print(f"UMBRA_T frame {frame} {time.time() - t0:.2f}s")
 
 
+# ---------------------------------------------------------------------------------------------- live engine
+def _live_q(quality):
+    from umbra.scene import QUALITY
+    return dict(QUALITY[quality]) if isinstance(quality, str) else dict(quality)
+
+
+def _live_plan(cls, a):
+    """Frames of the film (or of --range) cut into short chunks; every process works the same plan out for itself."""
+    fps = int(cls.fps)
+    n = int(round(float(cls.duration) * fps))
+    f0, f1 = 1, n
+    if a.get("range"):
+        f0, f1 = int(round(a["range"][0] * fps)) + 1, min(n, int(round(a["range"][1] * fps)))
+    size = int(a.get("chunk", 40))
+    return f0, f1, [(c, min(c + size - 1, f1)) for c in range(f0, f1 + 1, size)]
+
+
+def _live_scene(cls, quality, frames):
+    s = cls(quality=_live_q(quality), frames=frames, film=True, checks=False, capture=True)
+    s.build()
+    s._finalize()
+    return s
+
+
+def _live_bake(cls, a):
+    """A bake worker: no GPU. Builds the scene once, then bakes its share of the chunks into table files."""
+    import pickle
+    from umbra import live
+    f0, f1, plan = _live_plan(cls, a)
+    mine = [k for k in range(len(plan)) if k % a["jobs"] == a["job"]]
+    if not mine:
+        return
+    t0 = time.time()
+    s = st = None
+    for k in mine:
+        c0, c1 = plan[k]
+        frames = list(range(c0, c1 + 2))
+        if s is None:
+            s = _live_scene(cls, a["quality"], frames)
+            st = live.Static(s, geometry=False)
+            B = s.baker
+            print(f"UMBRA built {cls.__name__} in {time.time() - t0:.1f}s (bake worker {a['job']})")
+        else:
+            B = s.rebake(frames).baker
+        T = live.tables(s, B, st)
+        p = os.path.join(a["dir"], f"chunk_{k:04d}.pkl")
+        with open(p + ".tmp", "wb") as fh:
+            pickle.dump(T, fh, protocol=pickle.HIGHEST_PROTOCOL)
+        os.replace(p + ".tmp", p)
+        print(f"UMBRA_BAKED {k}")
+        sys.stdout.flush()
+
+
+def _live_encoder(a, W, H, rate, grain):
+    import subprocess
+    if a.get("encoder") == "nvenc":
+        codec = ["-c:v", "h264_nvenc", "-preset", "p5", "-tune", "hq", "-rc", "vbr", "-cq", "17", "-b:v", "0"]
+    elif a.get("encoder") == "x264slow":
+        codec = ["-c:v", "libx264", "-preset", "slow", "-crf", str(a.get("crf", 16)), "-tune", "film"]
+    else:
+        codec = ["-c:v", "libx264", "-preset", "veryfast", "-crf", str(a.get("crf", 16)), "-tune", "film"]
+    cmd = [a["ffmpeg"], "-y", "-loglevel", "error", "-r", f"{rate:g}", "-f", "rawvideo", "-pix_fmt", "nv12", "-s", f"{W}x{H}",
+           "-color_range", "tv", "-colorspace", "bt709", "-i", "-", *codec, "-pix_fmt", "yuv420p", "-r", f"{rate:g}", "-color_range", "tv",
+           "-colorspace", "bt709", "-color_primaries", "bt709", "-color_trc", "bt709", "-movflags", "+faststart", a["out"]]
+    return subprocess.Popen(cmd, stdin=subprocess.PIPE)
+
+
+def _live_render(cls, a):
+    """The one process that draws: takes the baked chunks in film order and pipes the frames to ffmpeg."""
+    import pickle
+    from umbra import live
+    f0, f1, plan = _live_plan(cls, a)
+    t0 = time.time()
+    s = _live_scene(cls, a["quality"], [f0, f0 + 1])
+    div = s.q.get("fps_div", 1)
+    info = dict(_info(cls), frames=[f0, f1], jobs=a["jobs"], step=div)
+    print("UMBRA_INFO " + json.dumps(info))
+    sys.stdout.flush()
+    st = live.Static(s)
+    R = live.Renderer(s, st, ss=a.get("ss", 4))
+    t_ready = time.time() - t0
+    grain = info["grain"] if a.get("grain") is None else a["grain"]
+    enc = _live_encoder(a, R.W, R.H, s.fps / div, grain)
+    todo = sum(1 for f in range(f0, f1 + 1) if (f - 1) % div == 0)
+    done, t_wait, t_draw, t_pipe = 0, 0.0, 0.0, 0.0
+    stop = os.path.join(a["dir"], "stop")
+    for k, (c0, c1) in enumerate(plan):
+        p = os.path.join(a["dir"], f"chunk_{k:04d}.pkl")
+        t = time.time()
+        while not os.path.exists(p):
+            if os.path.exists(stop):
+                raise RuntimeError("a bake worker failed")
+            time.sleep(0.004)
+        t_wait += time.time() - t
+        with open(p, "rb") as fh:
+            T = pickle.load(fh)
+        os.remove(p)
+        for f in range(c0, c1 + 1):
+            if (f - 1) % div:
+                continue
+            t = time.perf_counter()
+            px = R.frame(T, T.frames.index(f), video=(grain, f))
+            t2 = time.perf_counter()
+            enc.stdin.write(np.frombuffer(px, dtype=np.uint8))
+            t_draw += t2 - t
+            t_pipe += time.perf_counter() - t2
+            done += 1
+        print(f"UMBRA_FRAME {c1} {done}/{todo} {time.time() - t0:.1f}")
+        sys.stdout.flush()
+    enc.stdin.close()
+    if enc.wait() != 0:
+        raise RuntimeError("ffmpeg failed")
+    print(f"UMBRA live: ready in {t_ready:.1f}s, {done} frames: draw {t_draw / max(done, 1) * 1000:.1f} ms, pipe {t_pipe / max(done, 1) * 1000:.1f} ms each, "
+          f"waited {t_wait:.1f}s for bakes | " + " ".join(f"{k} {v / max(done, 1) * 1000:.2f}" for k, v in R.times.items()))
+
+
+def _live_stills(cls, quality, times, ss=4):
+    """Frames at the given times through the live renderer -> [(time, uint8 array H x W x 3, top row first)]."""
+    from umbra import live
+    fps = int(cls.fps)
+    frames = [int(round(t * fps)) + 1 for t in times]
+    s = _live_scene_plain(cls, quality, sorted(set(frames + [f + 1 for f in frames])))
+    st = live.Static(s)
+    T = live.tables(s, s.baker, st)
+    R = live.Renderer(s, st, ss=ss)
+    out = []
+    for t, f in zip(times, frames):
+        px = R.frame(T, T.frames.index(f))
+        out.append((t, np.frombuffer(px, dtype=np.uint8).reshape(R.H, R.W, 3).copy()))
+    return s, out
+
+
+def _live_scene_plain(cls, quality, frames):
+    """Like _live_scene but with the staging checks on (stills, sheets): the frames are not a chunk of a film."""
+    s = cls(quality=_live_q(quality) if not isinstance(quality, dict) else dict(quality), frames=frames, checks=True, capture=True)
+    s.build()
+    s._finalize()
+    print(f"UMBRA built {cls.__name__}: {len(s._nodes)} nodes (live)")
+    return s
+
+
+def _save_rgb(a, path):
+    """uint8 H x W x 3 (top row first) -> image file."""
+    h, w = a.shape[:2]
+    img = bpy.data.images.new("umbra_out", w, h, alpha=False)
+    rgba = np.ones((h, w, 4), dtype=np.float32)
+    rgba[..., :3] = a[::-1].astype(np.float32) / 255.0
+    img.pixels.foreach_set(rgba.ravel())
+    img.filepath_raw = path
+    img.file_format = "JPEG" if path.lower().endswith((".jpg", ".jpeg")) else "PNG"
+    img.save()
+    bpy.data.images.remove(img)
+
+
 def chunks(f0, f1, jobs):
     """Split frames f0..f1 into `jobs` contiguous chunks (fewer when there are under 8 frames per job)."""
     total = f1 - f0 + 1
@@ -208,6 +385,37 @@ def run(a):
     fps = int(cls.fps)
     if mode == "info":
         print("UMBRA_INFO " + json.dumps(_info(cls)))
+        return
+    if mode == "live_bake":
+        return _live_bake(cls, a)
+    if mode == "live":
+        return _live_render(cls, a)
+    if mode == "still" and a.get("engine") == "live":
+        s, shots = _live_stills(cls, a["quality"], a["times"])
+        for (t, img), out in zip(shots, a["outs"]):
+            _save_rgb(img, out)
+            print(f"UMBRA_OUT {out}")
+        return
+    if mode == "sheet" and a.get("engine") == "live":
+        times = a.get("times")
+        if not times:
+            t0_, t1_ = a.get("range") or (0.0, float(cls.duration))
+            n = a.get("n", 12)
+            times = [round(t0_ + (t1_ - t0_) * (i + 0.5) / n, 2) for i in range(n)]
+        print("UMBRA_TIMES " + json.dumps(times))
+        sys.stdout.flush()
+        q = dict(scale=a.get("scale", 0.25), samples=12, motion_blur=False, rt=True, fps_div=1, flags=True)
+        s, shots = _live_stills(cls, q, times)
+        cols = a.get("cols", 4)
+        rows = (len(shots) + cols - 1) // cols
+        h, w = shots[0][1].shape[:2]
+        gap = 4
+        sheet = np.zeros((rows * h + (rows - 1) * gap, cols * w + (cols - 1) * gap, 3), dtype=np.uint8)
+        for i, (t, img) in enumerate(shots):
+            y0, x0 = (i // cols) * (h + gap), (i % cols) * (w + gap)
+            sheet[y0:y0 + h, x0:x0 + w] = _stamp(img, f"{t:g}s")
+        _save_rgb(sheet, a["out"])
+        print(f"UMBRA_OUT {a['out']}")
         return
     if mode == "still":
         times = a["times"]
