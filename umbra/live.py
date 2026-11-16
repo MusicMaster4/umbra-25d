@@ -230,14 +230,17 @@ class Static:
             slots = [_kind(ms.material) for ms in o.material_slots] or [(5, False)]
             see = any(b for _, b in slots) or any(k in (4, 11) for k, _ in slots) or see_through(o)
             casts = bool(o.visible_shadow)
-            skinned = me.as_pointer() in weights and type(node.get(o.as_pointer()).parent if node.get(o.as_pointer()) else None).__name__ == "Person"
+            person = me.as_pointer() in weights and type(node.get(o.as_pointer()).parent if node.get(o.as_pointer()) else None).__name__ == "Person"
+            arm = None if person else _armature_of(o)         # a mesh on a Blender armature (an imported rig)
+            skinned = person or arm is not None
             idx = len(self.inst)
             self.inst.append(o)
             glowf = 0.0 if any(b for _, b in slots) or any(k in (4, 11) for k, _ in slots) else 1.0
             if not geometry:
                 if skinned:
-                    self.bones.append((o, nb, len(weights[me.as_pointer()][1])))
-                    nb += len(weights[me.as_pointer()][1])
+                    n_b = len(weights[me.as_pointer()][1]) if person else len(arm.data.bones) + 1
+                    self.bones.append((o, nb, n_b, arm))
+                    nb += n_b
                 if see:
                     self.blend.append(dict(id=idx, obj=o, glow=glowf, casts=casts, skinned=skinned))
                 continue
@@ -257,12 +260,12 @@ class Static:
             v[:, 14:17] = np.where(ink[:, None], A["inkd"], A["gen"])
             hull = kinds == 10
             if skinned:
-                W, bones = weights[me.as_pointer()]
+                W, bones = weights[me.as_pointer()] if person else _vgroup_weights(o, arm)
                 top = np.argsort(-W, axis=1)[:, :4]
                 tw = np.take_along_axis(W, top, axis=1)
                 tw = tw / np.maximum(tw.sum(axis=1, keepdims=True), 1e-9)
                 v = np.concatenate([v, (top + nb).astype(np.float32)[A["vi"]], tw.astype(np.float32)[A["vi"]]], axis=1)
-                self.bones.append((o, nb, len(bones)))
+                self.bones.append((o, nb, len(bones), arm))
                 nb += len(bones)
             dst = skin if skinned else rigid
             if see:
@@ -369,16 +372,127 @@ def _overlay_verts(o, dg, idx, kind):
     return v
 
 
-def _live_bodies(s, B, st):
-    """What each self-rewriting text object (typewriter stamps, counters) says on every baked frame."""
-    if not st.dyn_text:
+def _armature_of(o):
+    """The armature object deforming mesh object o, if it has one and vertex groups named after its bones."""
+    for m in o.modifiers:
+        if m.type == "ARMATURE" and m.object is not None and m.object.type == "ARMATURE":
+            names = {b.name for b in m.object.data.bones}
+            if any(g.name in names for g in o.vertex_groups):
+                return m.object
+    return None
+
+
+def _vgroup_weights(o, arm):
+    """-> (weights [vertices, bones + 1], names). The extra last column is a bone that never moves: vertices with no
+    weight stay where they are, as under Blender's armature modifier."""
+    bones = [b.name for b in arm.data.bones]
+    col = {nm: i for i, nm in enumerate(bones)}
+    gmap = [col.get(g.name, -1) for g in o.vertex_groups]
+    me = o.data
+    W = np.zeros((len(me.vertices), len(bones) + 1))
+    for v in me.vertices:
+        for g in v.groups:
+            j = gmap[g.group]
+            if j >= 0:
+                W[v.index, j] = g.weight
+    W[W[:, :-1].sum(axis=1) <= 1e-9, -1] = 1.0
+    return W, bones + [None]
+
+
+def _rig_skin(E, o, arm):
+    """Skinning matrices [F, bones, 4, 4] (in the mesh object's own space) of an armature whose pose bones are baked
+    (location / rotation / scale channels) or still. Plain forward kinematics: no constraints, no IK."""
+    F = E.F
+    bones = list(arm.data.bones)
+    idx = {b.name: i for i, b in enumerate(bones)}
+    rest = np.array([np.array(b.matrix_local, dtype=np.float64) for b in bones])
+    rest_inv = np.linalg.inv(rest)
+    P = np.empty((F, len(bones), 4, 4))
+    done = set()
+
+    def solve(i):
+        if i in done:
+            return
+        b = bones[i]
+        pb = arm.pose.bones[b.name]
+        path = 'pose.bones["%s"].' % b.name
+        loc = E.chan(arm, path + "location", 3, pb.location)
+        scl = E.chan(arm, path + "scale", 3, pb.scale)
+        if pb.rotation_mode == "QUATERNION":
+            R = _quat_mats(E.chan(arm, path + "rotation_quaternion", 4, pb.rotation_quaternion))
+        elif len(pb.rotation_mode) == 3:
+            R = _euler_mats(E.chan(arm, path + "rotation_euler", 3, pb.rotation_euler), pb.rotation_mode)
+        else:
+            R = np.eye(3)[None]
+        n = max(len(loc), len(scl), len(R))
+        basis = np.zeros((n, 4, 4))
+        basis[:, 3, 3] = 1.0
+        basis[:, :3, :3] = R * scl[:, None, :]
+        basis[:, :3, 3] = loc
+        if b.parent is None:
+            P[:, i] = rest[i] @ basis
+        else:
+            pi = idx[b.parent.name]
+            solve(pi)
+            P[:, i] = P[:, pi] @ (rest_inv[pi] @ rest[i]) @ basis
+        done.add(i)
+    for i in range(len(bones)):
+        solve(i)
+    C = np.linalg.inv(E.full(E.world(arm))) @ E.full(E.world(o))          # mesh space -> armature space
+    return np.linalg.inv(C)[:, None] @ P @ rest_inv[None] @ C[:, None]
+
+
+def _world_ambient(s):
+    """The world's ambient Background node (the one camera rays do not see), or None."""
+    w = s.bscene.world
+    if w is None or w.node_tree is None:
         return None
-    out = []
-    for t in B.times:
+    mx = next((n for n in w.node_tree.nodes if n.type == "MIX_SHADER"), None)
+    if mx is None or not mx.inputs[1].links:
+        return None
+    return mx.inputs[1].links[0].from_node
+
+
+def _hooks(s, B, E, st, T):
+    """Run the scene's on_frame hooks for every baked frame and keep what they did that this renderer draws: the body
+    of self-rewriting text, the energy and colour of lights, and the world's ambient light. Each frame starts from the
+    baked values, as a frame change would leave them, so a hook's value wins exactly where the hook writes."""
+    T.bodies, T.ambient = None, None
+    if not s._live:
+        return
+    lights = []
+    for o in s.bscene.objects:
+        if o.type == "LIGHT" and o.data not in lights:
+            lights.append(o.data)
+    e0 = [E.full(E.chan(d, "energy", 1, [d.energy]))[:, 0] for d in lights]
+    c0 = [tuple(d.color) for d in lights]
+    amb = _world_ambient(s)
+    a0 = (tuple(amb.inputs["Color"].default_value), float(amb.inputs["Strength"].default_value)) if amb is not None else None
+    en = np.zeros((E.F, len(lights)))
+    co = np.zeros((E.F, len(lights), 3))
+    am = np.zeros((E.F, 4))
+    bodies = []
+    for i, t in enumerate(B.times):
+        for k, d in enumerate(lights):
+            d.energy, d.color = float(e0[k][i]), c0[k]
+        if amb is not None:
+            amb.inputs["Color"].default_value, amb.inputs["Strength"].default_value = a0
         for fn in s._live:
             fn(t)
-        out.append({o.name: o.data.body for _, o in st.dyn_text})
-    return out
+        for k, d in enumerate(lights):
+            en[i, k], co[i, k] = d.energy, d.color
+        if amb is not None:
+            am[i, :3] = np.array(amb.inputs["Color"].default_value[:3]) * float(amb.inputs["Strength"].default_value)
+        bodies.append({o.name: o.data.body for _, o in st.dyn_text})
+    for k, d in enumerate(lights):                           # leave the datablocks as they were found
+        d.energy, d.color = float(e0[k][0]), c0[k]
+        B.curves[(d.as_pointer(), "energy", 0)] = en[:, k].astype(np.float32)
+        for c in range(3):
+            B.curves[(d.as_pointer(), "color", c)] = co[:, k, c].astype(np.float32)
+    if amb is not None:
+        amb.inputs["Color"].default_value, amb.inputs["Strength"].default_value = a0
+        T.ambient = am
+    T.bodies = bodies if st.dyn_text else None
 
 
 # ------------------------------------------------------------------------------------------------ per-frame tables
@@ -390,6 +504,7 @@ def tables(s, B, st):
     E = _Eval(B)
     F = E.F
     T = Tables()
+    _hooks(s, B, E, st, T)
     T.frames = [int(f) for f in B.frames]
     look, W, H = s.look, s.size[0], s.size[1]
     shutter = look.motion_blur if s.q.get("motion_blur", True) else 0.0
@@ -451,8 +566,11 @@ def tables(s, B, st):
     nbr = max((st.n_bones + BT_ROW - 1) // BT_ROW, 1)
     bt = np.zeros((F, nbr * BT_ROW, 3, 4), dtype=np.float32)
     bt[:, :, 0, 0] = bt[:, :, 1, 1] = bt[:, :, 2, 2] = 1.0
-    for o, b0, n in st.bones:
-        bt[:, b0:b0 + n] = B.skins[o.as_pointer()][1][:, :, :3, :]
+    for o, b0, n, arm in st.bones:
+        if arm is None:
+            bt[:, b0:b0 + n] = B.skins[o.as_pointer()][1][:, :, :3, :]
+        else:
+            bt[:, b0:b0 + n - 1] = _rig_skin(E, o, arm)[:, :, :3, :]
     T.bones = bt.reshape(F, nbr, BT_ROW * 3, 4)
 
     # -- camera
@@ -497,7 +615,6 @@ def tables(s, B, st):
 
     _lights(s, E, T, st)
     _overlay_tables(s, E, T, st)
-    T.bodies = _live_bodies(s, B, st)
     return T
 
 
@@ -518,7 +635,7 @@ def _lights(s, E, T, st):
         Wm = E.full(E.world(o))
         energy = E.full(E.chan(d, "energy", 1, [d.energy]))[:, 0]
         hidden = E.full(E.chan(o, "hide_render", 1, [float(o.hide_render)]))[:, 0] > 0.5
-        recs.append(dict(o=o, d=d, pos=Wm[:, :3, 3], z=Wm[:, :3, 2], energy=np.where(hidden, 0.0, energy), col=np.array(d.color[:3]),
+        recs.append(dict(o=o, d=d, pos=Wm[:, :3, 3], z=Wm[:, :3, 2], energy=np.where(hidden, 0.0, energy), col=E.full(E.chan(d, "color", 3, d.color)),
                          kind={"SUN": 0, "POINT": 1, "SPOT": 2, "AREA": 3}[d.type], shadow=bool(d.use_shadow) and s.bscene.eevee.use_shadows,
                          radius=float(getattr(d, "shadow_soft_size", 0.1)), spec=float(d.specular_factor)))
     W, H = s.size
@@ -538,7 +655,7 @@ def _lights(s, E, T, st):
             slot = 0.0
             if kind == 0:
                 T.L[i, 0, j] = (*z, 0.0)
-                T.L[i, 1, j] = (*(r["col"] * e), 0.0)
+                T.L[i, 1, j] = (*(r["col"][i] * e), 0.0)
                 rng = 1e9
                 if r["shadow"] and not got_sun:
                     got_sun, slot = True, 1.0
@@ -546,7 +663,7 @@ def _lights(s, E, T, st):
                     T.sundir[i] = z
                     _sun_views(T, i, z, float(r["d"].angle), s)
             else:
-                inten = r["col"] * e / (4 * math.pi) * (math.pi if kind == 3 else 1.0)
+                inten = r["col"][i] * e / (4 * math.pi) * (math.pi if kind == 3 else 1.0)
                 rng = math.sqrt(max(float(inten.max()), 1e-9) / 0.002)
                 T.L[i, 0, j] = (*r["pos"][i], float(kind))
                 T.L[i, 1, j] = (*inten, r["radius"])
@@ -863,7 +980,8 @@ class Renderer:
         one("nlights", int(T.nl[i]), sh.uniform_int)
         for k, nm in enumerate(("L_pos", "L_col", "L_dir", "L_par")):
             vec(nm, T.L[i, k], 4, MAXL)
-        one("ambient", self.ambient)
+        amb = getattr(T, "ambient", None)
+        one("ambient", self.ambient if amb is None else (*amb[i][:3], 0.0))
         one("camfwd", (*T.camfwd[i], 0.0))
         one("fadepar", self.fade)
         one("fogpar", self.fog)

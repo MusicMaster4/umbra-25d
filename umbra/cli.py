@@ -124,7 +124,7 @@ def cmd_render_live(a):
         sys.exit("umbra: ffmpeg was not found. Install ffmpeg (or `pip install imageio-ffmpeg`).")
     workers = a.jobs if a.jobs_given else max(2, min(12, (os.cpu_count() or 4) // 2))
     encoder = "x264slow" if a.x264 == "slow" else "x264" if (a.x264 or not _has_nvenc(ff)) else "nvenc"
-    base = {"scene": scene, "cls": a.cls, "quality": a.quality, "range": a.range, "jobs": workers, "dir": fdir, "chunk": a.chunk}
+    base = {"scene": scene, "cls": a.cls, "quality": a.quality, "range": a.range, "jobs": workers, "dir": fdir, "chunk": a.chunk, "ss": a.ss}
     meta, errors, t0 = {}, [], time.time()
     last = [t0]
 
@@ -645,6 +645,8 @@ def main(argv=None):
                    help="parallel processes: bake workers for the live engine (default: half the CPU threads, at most 12), "
                         "render jobs for eevee (default 2)")
     p.add_argument("--chunk", type=int, default=40, help="live engine: frames per bake chunk")
+    p.add_argument("--ss", type=int, default=4, choices=[2, 3, 4],
+                   help="live engine: geometry samples per pixel side (4 = 16 per pixel; 3 or 2 need less video memory)")
     p.add_argument("--x264", nargs="?", const="fast", default=None, choices=["fast", "slow"],
                    help="live engine: encode with x264 on the CPU instead of NVENC (slow = the eevee path's settings)")
     p.add_argument("--range", type=float, nargs=2, metavar=("T0", "T1"), help="only this time span (seconds)")

@@ -383,7 +383,9 @@ void shade(int id, int kind, bool emits, vec3 base, vec3 P, vec3 N, float ao, ve
       float ph = ot(objtex, id, 5).x;
       float e = 0.08;
       float h0 = fbm(vec3(P.xy * 0.35, ph), 3), hx = fbm(vec3((P.xy + vec2(e, 0.0)) * 0.35, ph), 3), hy = fbm(vec3((P.xy + vec2(0.0, e)) * 0.35, ph), 3);
-      N = normalize(N + vec3(-(hx - h0), -(hy - h0), 0.0) / e * 0.22);
+      /* gentle, and gone in the distance: far ripples are smaller than a pixel and would only band the reflection */
+      float rip = 0.07 * clamp(14.0 / max(length(P - campos.xyz), 1e-3), 0.0, 1.0);
+      N = normalize(N + vec3(-(hx - h0), -(hy - h0), 0.0) / e * rip);
     }
     if (dot(N, V) < 0.0) N = normalize(N - 1.02 * dot(N, V) * V);
     col = lit_surface(P, N, V, base, kp.x, kp.y, kp.z, ao, px);
