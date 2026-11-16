@@ -263,11 +263,15 @@ a mover) · `s.arrow(points, t)` · `s.ring(at, r, t, repeat=3)` · `s.zone(pts 
   - it is a mistake → move the thing, re-route the walk, change the pose;
   - this thing is meant to be passable (flame, curtain, hologram, bush, water spray) → create it with
     `solid=False` (`s.add(..., solid=False)`, any kit call, or `node.solid = False`);
-  - only this pair is meant to overlap (a rocket in its launch ring, a box being carried) → `a.allow(b)` /
-    `person.allow(node)`.
+  - only this pair is meant to overlap (a rocket in its launch ring, a box being carried, someone sitting in a boat)
+    → `a.allow(b)` / `person.allow(node)`. For a person, `allow` covers being in, on or holding the thing; a leg,
+    foot or forearm that goes **through** it and out the other side (a foot through the hull) is still flagged, and
+    the fix is the staging: move the person or the seat, give them a floor at the right height, or bend the knees /
+    lift the feet. `person.allow(node, through=True)` exists for the rare thing that is really meant to pass through.
   What is tested: body cores, spine, legs, forearms and hands of every person against solids (thin table tops
-  and rails count; hands may touch small graspable props), moving props against static ones, two people on one
-  spot, the camera inside geometry. `walk()` already routes around furniture, and hands in table poses rest **on**
+  and rails count; hands may touch small graspable props), shins, feet and forearms coming out the far side of
+  anything solid (seated people included), moving props against static ones, two people on one spot, the camera
+  inside geometry. `render` (both engines) runs the same checks and prints the same flags. `walk()` already routes around furniture, and hands in table poses rest **on**
   the top (`p.sit(table=0.75)`), so most of this never fires.
 - **Preflight** also flags a camera under the ground and people below it. Treat every `warning:` as a bug to fix
   before rendering (move the thing, re-route the walk, or mark the overlap as intended).

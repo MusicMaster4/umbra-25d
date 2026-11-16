@@ -20,11 +20,12 @@ class CabinFight(Scene):
                     continue
                 p = s.person(at=cabin.seat(row, col), color="#6a6a6a" if rng.random() < 0.5 else "#505050", parent=ship, idle=0.6,
                              build=str(rng.choice(["man", "woman", "slim"])), hair=str(rng.choice(["short", "long", "bob", "curly", "bald"])))
-                p.sit(seat=cabin.seat_h, pose=str(rng.choice(["sit", "sit_back", "sit"])))
+                rng.choice(3)                                 # (keeps the seating draw as it was)
+                p.sit(seat=cabin.seat_h)                      # upright: stretched-out legs end up inside the seat in front
                 crowd.append(p)
 
         red = s.person(at=cabin.seat(2, 3), color=RED, parent=ship).sit(seat=cabin.seat_h)
-        blue = s.person(at=cabin.seat(5, 2), color=WHITE, parent=ship, hair="bald").sit(seat=cabin.seat_h, pose="sit_back")
+        blue = s.person(at=cabin.seat(5, 2), color=WHITE, parent=ship, hair="bald").sit(seat=cabin.seat_h)
         ax, y2, y5 = 0.0, cabin.aisle(2)[1], cabin.aisle(5)[1]
 
         # rise into the leg-room in front of the seat, side-step to the aisle, then go forward (no walking through seats)

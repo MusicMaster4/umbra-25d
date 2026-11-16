@@ -153,7 +153,11 @@ def cmd_render_live(a):
             errors.append(err)
             open(os.path.join(fdir, "stop"), "w").close()
 
+    def check():                                      # the staging checks (clipping, ground), next to the bake workers
+        run_blender({"mode": "check", "scene": scene, "cls": a.cls})
+
     threads = [threading.Thread(target=draw)] + [threading.Thread(target=bake, args=(i,)) for i in range(workers)]
+    threads.append(threading.Thread(target=check))
     for t in threads:
         t.start()
     for t in threads:

@@ -137,10 +137,15 @@ class Node:
             self.rot.fn(f, t, dur, ease)
         return self
 
-    def allow(self, *nodes):
-        """Tell the clipping check that overlapping these nodes is intended (a rocket in its launch ring, a drawer in
-        a desk). For "nothing collides with this at all" set node.solid = False instead."""
+    def allow(self, *nodes, through=False):
+        """Tell the clipping check that touching / overlapping these nodes is intended: sitting in a boat, standing in
+        a doorway, a rocket in its launch ring, a drawer in a desk. For a person this does NOT cover a leg, foot or
+        forearm that goes right through the thing and out the other side (a foot through the hull): that is still
+        flagged. through=True silences that as well - only for things that really are meant to pass through.
+        For "nothing collides with this at all" set node.solid = False instead."""
         self.__dict__.setdefault("_allowed", set()).update(id(n) for n in nodes)
+        if through:
+            self.__dict__.setdefault("_allowed_through", set()).update(id(n) for n in nodes)
         return self
 
     def drive(self, pos=None, rot=None, scale=None):

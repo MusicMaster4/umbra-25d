@@ -36,3 +36,11 @@ class Sloppy(Scene):
         s.table(at=(-3.5, -2.5))
         s.person(at=(-5.5, -2.5), color=BLUE).walk((-1.5, -2.5), t=0.5, dur=3)              # avoids the table
         s.person(at=(-5.5, -3.6), color=AMBER).walk((-1.5, -1.4), t=0.5, dur=3, avoid=False)  # preflight flags it
+        # 7. a limb through something the person was allowed to be in: allow() covers sitting in the boat, not the feet
+        #    coming out under it (the deck the rower's feet rest on is below the hull)
+        hull = Mesh()
+        hull.box((0.9, 2.4, 0.03), at=(0, 0, 0.30)).box((0.03, 2.4, 0.35), at=(-0.45, 0, 0.47)).box((0.03, 2.4, 0.35), at=(0.45, 0, 0.47))
+        hull.box((0.84, 0.25, 0.03), at=(0, -0.2, 0.62))
+        boat = s.add(hull, at=(4.5, 3.0, 0), color="#6a5f52", name="boat")
+        rower = s.person(at=(4.5, 2.8, 0.18), color=GREEN, name="rower").sit(seat=0.46)
+        rower.allow(boat)

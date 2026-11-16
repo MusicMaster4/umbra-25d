@@ -670,6 +670,45 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 if loc is not None:
                     hit(who, n, 0.12, t, (float(mid[0]), float(mid[1]), float(mid[2])))
 
+        covered = set()                                              # flags on things the person had allow()ed
+
+        def pierce(a, b, who, t, thr, ok, min_r=0.0, skin=0.045):
+            """Does the limb a -> b go through a surface and stick out more than `skin` metres on the far side?
+            Run against every solid, allowed or not, seated or not: resting in or on something never does this."""
+            from mathutils import Vector
+            mid, half = (a + b) / 2, float(np.linalg.norm(b - a)) / 2
+            for n, st, lo, hi in solids:
+                if id(n) in thr or not n.eff_vis(t):
+                    continue
+                if min_r and self._bounds(n)[1] < min_r:
+                    continue
+                if st and (np.any(mid < lo - half) or np.any(mid > hi + half)):
+                    continue
+                m = None
+                if not st:
+                    c, r = self._bounds(n)[:2]
+                    m = n.matrix(t)
+                    if float(np.linalg.norm(m[:3, :3] @ c + m[:3, 3] - mid)) > r * float(np.linalg.norm(m[:3, 0])) + half:
+                        continue
+                tree = self._bvh(n)
+                if tree is None:
+                    continue
+                mi = minv(n, st, t)
+                p, q = mi[:3, :3] @ a + mi[:3, 3], mi[:3, :3] @ b + mi[:3, 3]
+                d = q - p
+                ln = float(np.linalg.norm(d))
+                if ln < 1e-6:
+                    continue
+                loc, _nrm, _idx, dist = tree.ray_cast(Vector(p), Vector(d / ln), ln)
+                if loc is None:
+                    continue
+                beyond = (ln - float(dist)) / max(float(np.linalg.norm(mi[:3, 0])), 1e-9)
+                if beyond > skin:
+                    w = a + (b - a) * (float(dist) / ln)
+                    hit(who, n, beyond, t, (float(w[0]), float(w[1]), float(w[2])))
+                    if id(n) in ok:
+                        covered.add((who, tag(n), id(n)))
+
         def test(p, who, lim, t, skip=None, pad=0.0, same=None, ok=()):
             for n, st, lo, hi in solids:
                 if n is skip or id(n) in ok or not n.eff_vis(t):
@@ -720,6 +759,14 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                         knee = pn.part["shin_" + side].world(t)
                         cross(pn.part["thigh_" + side].world(t, (0, 0, -0.1)), knee, who + " (leg)", t, ok=ok)
                         cross(knee, pn.part["foot_" + side].world(t, (0, 0, 0.06)), who + " (leg)", t, ok=ok)
+                thr = getattr(pn, "_allowed_through", ())
+                ah = float(pn.sk.ankle_h)
+                for side in "lr":                                     # limbs out the far side of something
+                    foot = pn.part["foot_" + side]
+                    pierce(pn.part["shin_" + side].world(t), foot.world(t, (0, 0, -ah + 0.01)), who + " (leg)", t, thr, ok)
+                    pierce(foot.world(t), foot.world(t, (0, 0.16, -ah + 0.02)), who + " (foot)", t, thr, ok)
+                    elbow, wrist = pn.part["farm_" + side].world(t), pn.part["hand_" + side].world(t)
+                    pierce(elbow + (wrist - elbow) * 0.3, wrist, who + " (arm)", t, thr, ok, min_r=0.25)
         for n, (c, r, lo, hi) in movers:
             if type(n).__name__ == "Person" or thrown(n):            # thrown / falling debris may pile up
                 continue
@@ -746,8 +793,16 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                     else:
                         run = 0
         rows = sorted(((k, v) for k, v in found.items() if v[4] >= 2), key=lambda kv: -kv[1][0])     # ignore one-sample grazes
-        for (who, name, _), (depth, t0, t1, w, cnt, _t) in rows[:8]:
+        for key, (depth, t0, t1, w, cnt, _t) in rows[:8]:
+            who, name, _ = key
             span = f"t={t0:.1f}s" if t1 - t0 < 0.25 else f"t={t0:.1f}-{t1:.1f}s"
+            if key in covered:
+                self.warn(f"clipping: {who} goes right through {name} and sticks out {depth * 100:.0f} cm on the other side at {span} "
+                          f"near ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f}). allow() covers sitting in / standing on / holding it, not this. "
+                          f"Look at it (sheet -t {(t0 + t1) / 2:.1f} marks the spot in magenta) and fix the staging: move the "
+                          f"person or the seat, raise the floor they stand on, or change the pose (knee_l / knee_r, foot_l / "
+                          f"foot_r, lift). Only if it really is meant to pass through: person.allow(<that node>, through=True).")
+                continue
             self.warn(f"clipping? {who} goes through {name} at {span} near ({w[0]:.1f}, {w[1]:.1f}, {w[2]:.1f}). "
                       f"Look at it (sheet -t {(t0 + t1) / 2:.1f} marks the spot in magenta): fix it by moving / re-routing, "
                       f"or if it is meant to be, say so: <that node>.solid = False, or person.allow(<that node>).")

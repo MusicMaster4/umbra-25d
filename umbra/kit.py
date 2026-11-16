@@ -481,7 +481,7 @@ class KitMixin:
         base, yaw = v3(at), math.radians(rot if isinstance(rot, (int, float)) else rot[2])
 
         def seat_xy(row, col):
-            x, y = xs[col], ys[row] + 0.1
+            x, y = xs[col], ys[row] + 0.0
             return (base[0] + x * math.cos(yaw) - y * math.sin(yaw), base[1] + x * math.sin(yaw) + y * math.cos(yaw))
         n.seat = seat_xy
         n.aisle = lambda row: (base[0] - (ys[row]) * math.sin(yaw), base[1] + ys[row] * math.cos(yaw))
