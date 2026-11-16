@@ -277,16 +277,34 @@ BUILD_BODY = {"man": "male", "woman": "female", "slim": "male", "heavy": "male",
 
 
 def vertex_normals(verts, faces):
+    """Area-weighted vertex normals. Vectorised per face size; every sum runs in the same order as the plain
+    per-face loop it replaces (edges in order, faces in order), so the result is bit-for-bit the same."""
     n = np.zeros_like(verts)
-    for f in faces:
-        p = verts[list(f)]
-        fn = np.zeros(3)
-        for i in range(len(p)):
-            fn += np.cross(p[i], p[(i + 1) % len(p)])
-        for i in f:
-            n[i] += fn
+    if not len(faces):
+        return n
+    sizes = np.fromiter((len(f) for f in faces), dtype=np.int64, count=len(faces))
+    fn = np.zeros((len(faces), 3))
+    for k in np.unique(sizes):
+        sel = np.where(sizes == k)[0]
+        idx = np.array([faces[i] for i in sel], dtype=np.int64).reshape(len(sel), int(k))
+        p = verts[idx]                                        # (faces, k, 3)
+        acc = np.zeros((len(sel), 3))
+        for i in range(int(k)):
+            acc += _cross(p[:, i], p[:, (i + 1) % int(k)])
+        fn[sel] = acc
+    flat = np.fromiter((i for f in faces for i in f), dtype=np.int64, count=int(sizes.sum()))
+    np.add.at(n, flat, np.repeat(fn, sizes, axis=0))          # unbuffered: accumulates in face order
     ln = np.linalg.norm(n, axis=1, keepdims=True)
     return n / np.where(ln > 1e-12, ln, 1.0)
+
+
+def _cross(a, b):
+    """Row-wise cross product (the same three products and differences np.cross computes for one pair)."""
+    out = np.empty_like(a)
+    out[:, 0] = a[:, 1] * b[:, 2] - a[:, 2] * b[:, 1]
+    out[:, 1] = a[:, 2] * b[:, 0] - a[:, 0] * b[:, 2]
+    out[:, 2] = a[:, 0] * b[:, 1] - a[:, 1] * b[:, 0]
+    return out
 
 
 def shaped(body, build):

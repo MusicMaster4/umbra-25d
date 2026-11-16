@@ -406,7 +406,7 @@ class Node:
                 if tr.animated:
                     vals = [float(tr.at(t)) for t in ts]
                     if name == "glow" and tr.adds and not getattr(self, "_crisp", False):
-                        vals = B.calm(vals, [float(tr.base(t)) for t in ts])
+                        vals = B.calm_fn(lambda t: float(tr.at(t)), lambda t: float(tr.base(t)))
                     B.scalar(o, f'["{name}"]', vals, jumps=getattr(tr, "jumps", ()))
         dark = getattr(self, "_dark", None)          # lights that are switched off are hidden, so they cost nothing
         if self._vis_animated() or dark is not None:
@@ -505,7 +505,7 @@ class LightNode(Node):
                 self.power._prep()
             vals = [max(0.0, float(self.power.at(t))) for t in ts]
             if self.power.adds and not getattr(self, "_crisp", False):       # safeguard: no strobing light
-                vals = B.calm(vals, [max(0.0, float(self.power.base(t))) for t in ts])
+                vals = B.calm_fn(lambda t: max(0.0, float(self.power.at(t))), lambda t: max(0.0, float(self.power.base(t))))
             B.scalar(d, "energy", [v * self.eff_alpha(t) for v, t in zip(vals, ts)], jumps=self.power.jumps)
         else:
             d.energy = float(self.power.default) * self.eff_alpha(0.0)

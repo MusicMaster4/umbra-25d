@@ -143,6 +143,12 @@ class Materials:
             col = _mixcol(nt, k, (0, 0, 0, 1), glow_col)
             nt.links.new(col, aov.inputs["Color"])
         m.surface_render_method = "BLENDED" if blended else "DITHERED"
+        # Shadows: EEVEE treats every material as a possible see-through shadow caster by default, and redraws the
+        # shadow maps under such a caster for every sample of every frame (32 times a frame at final quality) so
+        # the dither can average out. A caster at full opacity needs none of that, so materials that are not
+        # see-through by construction ask for solid shadows. Scene._shadow_modes puts the default back for the
+        # whole film if any caster in it is ever less than opaque.
+        m.use_transparent_shadow = bool(blended or alpha_mul is not None)
         if blended:
             m.use_backface_culling = False
             try:

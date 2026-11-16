@@ -10,12 +10,13 @@ python -m umbra lint   scenes/my_scene.py          # 0. build + all checks, no r
 python -m umbra sheet  scenes/my_scene.py          # 1. ONE image: 12 timestamped frames across the film. Look at it.
 python -m umbra sheet  scenes/my_scene.py -t 4.2 -t 4.4 -t 4.6 -t 4.8 --cols 4   # zoom in on a moment / fast event
 python -m umbra still  scenes/my_scene.py -t 6.5    # 2. one full-quality frame (text legibility, detail)
-python -m umbra render scenes/my_scene.py           # 3. final 1080p mp4 -> out/my_scene.mp4  (3-20 min / 20 s; -j 3)
+python -m umbra render scenes/my_scene.py           # 3. final 1080p mp4 -> out/my_scene.mp4  (about 0.6 s per frame: ~6 min / 20 s)
+python -m umbra render scenes/my_scene.py --range 8 11   # re-render a span; its frames match the full film's
 python -m umbra api trail                           # exact signature + docstring of anything (no Blender needed)
 python -m umbra check out/my_scene.mp4              # flicker meter for a finished video (render runs it for you)
 ```
 
-`sheet` takes ~10 s: iterate there, never on full renders. Short events (a flash, a hit) fall between the 12
+`sheet` takes 5-15 s: iterate there, never on full renders. Short events (a flash, a hit) fall between the 12
 default samples — pass their times with `-t`. Text is too small to judge on a sheet: use `still`, or
 `sheet --scale 0.5 --cols 3`. Errors print a normal traceback pointing at your scene file; `warning:` lines are
 preflight notes (see Safeguards). `s.log(x)` prints values while building. Full signature list: `docs/API.md`.
@@ -276,4 +277,8 @@ a mover) · `s.arrow(points, t)` · `s.ring(at, r, t, repeat=3)` · `s.zone(pts 
 - `flat` things fade with a little grain (they glow); for a soft translucent thing use `mat="fill"`.
 - Hide what a later shot must not see (`node.hide(t)`), or build the second set far away.
 - Escape hatch: every Node has `.obj` (the Blender object); `s.on_frame(fn)` runs `fn(t)` before each frame.
+- Render speed needs nothing from you. Two things only if you are chasing a difference: `render --safe` renders every
+  frame from scratch the slow way, and class attr `solid_shadows = False` redraws shadows for every sample (the
+  default draws solid shadows once per frame when no shadow caster in the film is ever see-through). `-j` above 2
+  rarely helps on one GPU and is cut to what video memory holds.
 - Don't read `umbra/` source; ask `python -m umbra api <word>` instead.

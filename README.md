@@ -88,11 +88,11 @@ The loop is built to be cheap in tokens:
 
 | step | command | cost |
 |---|---|---|
-| see the whole film | `python -m umbra sheet scene.py` | one image (12 timestamped frames), ~10 s |
+| see the whole film | `python -m umbra sheet scene.py` | one image (12 timestamped frames), 5–15 s |
 | check a moment | `python -m umbra sheet scene.py -t 4.2 -t 4.6 -t 5.0` | one image |
 | check detail | `python -m umbra still scene.py -t 6.5` | one 1080p frame |
-| check without rendering | `python -m umbra lint scene.py` | text only, no GPU, ~5 s |
-| deliver | `python -m umbra render scene.py` | mp4; the eleven films here took 3–21 min each (median 9) at 1080p on an RTX 3070 |
+| check without rendering | `python -m umbra lint scene.py` | text only, no GPU, 3–12 s |
+| deliver | `python -m umbra render scene.py` | mp4; about 0.6 s per 1080p frame of a lit scene on an RTX 3070 (see [Render speed](#render-speed)) |
 
 <p align="center"><img src="docs/media/sheet.jpg" alt="A contact sheet" width="100%"><br>
 <sub>What an agent looks at: one contact sheet of the whole timeline.</sub></p>
@@ -160,7 +160,7 @@ rings, zones and light beams. Particles are analytic, so any frame can be render
 ## How it works
 
 ```
-scene.py ──► umbra (Python, inside Blender) ──► EEVEE on the GPU ──► PNG frames ──► ffmpeg ──► mp4
+scene.py ──► umbra (Python, inside Blender) ──► EEVEE on the GPU ──► frames ──► ffmpeg ──► mp4
    │              │
    │              ├─ every value is a Track: set / to / fn + additive layers (shake, flicker, gait…)
    │              ├─ tracks are sampled per frame and baked to f-curves; particles and IK are closed-form
@@ -168,18 +168,68 @@ scene.py ──► umbra (Python, inside Blender) ──► EEVEE on the GPU ─
    └─ declarative: absolute times, any order, everything chainable
 ```
 
-- Rendering is real-time rasterisation (EEVEE), not path tracing: about 1 s per 1080p frame with soft shadows,
+- Rendering is real-time rasterisation (EEVEE), not path tracing: 32 samples per 1080p frame with soft shadows,
   screen-space GI, depth of field and motion blur. `render -j N` runs N Blender processes side by side.
 - `python -m umbra blend scene.py` exports an ordinary `.blend` if you want to keep working by hand.
 - Outlines in the `blueprint` look are real geometry pushed out in the vertex shader, so they stay a
   constant width in pixels at any distance or zoom.
 
+## Render speed
+
+Measured on an RTX 3070, `03_dinner_date` at 1080p and 32 samples (11 people, 14 lights), quiet GPU:
+
+| | before | now |
+|---|---|---|
+| one frame, one process | 1.05 s | 0.60 s |
+| 90 frames with `-j 2`, start to finished mp4 | 98 s | 60 s |
+| time before the first frame | 25 s | 10 s |
+| contact sheet (12 tiles), GPU shared with another render | 25 s | 14 s |
+| `lint` | 24 s | 11 s |
+
+Where it went, in order of size:
+
+- **Shadows drawn once per frame.** Blender marks every material as a possible see-through shadow caster, and EEVEE
+  then redraws the shadow maps for every sample of every frame. When no shadow caster in the film is ever less than
+  opaque, umbra asks for solid shadows instead. Films with fading casters, debris or glass that casts shadows keep
+  the old behaviour, and `solid_shadows = False` on the Scene class forces it. Scenes with no shadow-casting light
+  (blueprint, paper) switch the shadow system off.
+- **The overlay is rendered when it changes.** The 2D layer is a second scene; for most of a film it holds nothing
+  but the vignette, so its picture is kept and reused until something in it moves.
+- **Nothing is rebuilt between frames.** Blender keeps the evaluated scene and its GPU geometry from frame to frame.
+- **Scene build.** Body normals are computed in one vectorised pass (23 s → 4.6 s for the dinner scene), the
+  clipping check runs once next to the frame jobs instead of inside each, and the jobs no longer wait for a
+  separate Blender run that only reads the film's length.
+- **Frames and encode.** Frames are written as uncompressed TIFF (the same pixels as PNG, cheaper to write) and
+  fed to ffmpeg while the jobs are still rendering.
+
+What it costs in picture: against the previous code rendering the same frames in film order (6 to 12 frames per
+film), four of the eleven gallery films come out bit-identical, five differ by one level of 255 on under 0.003 % of
+pixels (EEVEE's own run-to-run noise), and the two with the most shadowed geometry (`03_dinner_date`,
+`04_crime_scene`) differ by up to 3 levels on 0.3 % of pixels, along shadow edges. `tools/frame_diff.py` measures this for any two renders;
+`render --safe` is the old path.
+
+Two things came out of measuring that:
+
+- What Blender draws for a frame depends slightly on the frame the same process rendered just before it (the
+  motion-blurred edges of fast things), and the flicker limiter and near-plane smoothing used to run per job. So
+  the first frames of each job, and of every `--range`, did not match a one-job render. Each job now renders and
+  discards the frame before its chunk and filters over the whole film: a frame comes out the same for any `-j`,
+  any `--range` and any re-render.
+- More jobs is not more speed on one GPU. A job holds about 1.6 GB of video memory; 4 jobs on a card with 4.8 GB
+  free took five times as long as 2. `render` cuts `-j` to what fits, and a frame file that was cut short on disk
+  is rendered again before the encode.
+
+The rest is the samples: about 11 ms each, 32 per frame. Two opt-in switches trade exactness for more speed:
+`-q fast` renders 16 samples (PSNR 60 dB against 32 on the dinner scene, 0.5 % of pixels off by more than one
+level), and `--gpu-backend vulkan` was 14–21 % faster per frame than OpenGL here (up to 7 levels of difference on
+0.3 % of pixels; its first frame takes about 7 s longer).
+
 ## CLI
 
 ```
 python -m umbra sheet  scene.py [-n 12] [-t T ...] [--range T0 T1] [--cols 4] [--scale 0.25]
-python -m umbra still  scene.py -t T [-t T ...] [-q draft|preview|final|ultra]
-python -m umbra render scene.py [-q final] [-j 2] [--range T0 T1] [--resume] [--nvenc]
+python -m umbra still  scene.py -t T [-t T ...] [-q draft|preview|fast|final|ultra]
+python -m umbra render scene.py [-q final] [-j 2] [--range T0 T1] [--resume] [--nvenc] [--safe] [--gpu-backend vulkan]
 python -m umbra lint   scene.py        # build + every check, no rendering, no GPU
 python -m umbra blend  scene.py
 python -m umbra api    [word]          # method signatures + docstrings, e.g. `api trail` (also in docs/API.md)
@@ -195,6 +245,7 @@ scenes/       example films — start from 00_hello.py
 tests/        a deliberately sloppy scene that exercises the safeguards
 AGENTS.md     the one-page guide for agents (and humans)
 docs/API.md   every public method with its signature (generated by `python -m umbra api`)
+tools/        asset builder; frame_diff.py compares two renders pixel by pixel
 ```
 
 ## Licence

@@ -19,6 +19,7 @@ from .fx import FxMixin
 QUALITY = {
     "draft":   dict(scale=0.5, samples=8, motion_blur=False, rt=False, fps_div=2),
     "preview": dict(scale=0.5, samples=16, motion_blur=False, rt=True, fps_div=1),
+    "fast":    dict(scale=1.0, samples=16, motion_blur=True, rt=True, fps_div=1),    # final with half the samples
     "final":   dict(scale=1.0, samples=32, motion_blur=True, rt=True, fps_div=1),
     "ultra":   dict(scale=1.0, samples=64, motion_blur=True, rt=True, fps_div=1, shadow_rays=3),
 }
@@ -60,10 +61,15 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
     size = (1920, 1080)
     ground = True          # set False for space / sky / abstract scenes
     check_clipping = True  # preflight warning when people / movers pass through solid props
+    solid_shadows = True   # opaque casters cast solid shadows drawn once per frame (False: redrawn for every sample)
+    overlay_cache = True   # reuse the 2D overlay's picture while nothing in it changes (False: render it every frame)
     seed = 7
 
     # ------------------------------------------------------------------ setup
-    def __init__(self, quality="final", frames=None):
+    def __init__(self, quality="final", frames=None, film=False, checks=True):
+        """frames: the frame numbers to bake (None = the whole film). film=True: `frames` is one chunk of a film render
+        (see Baker). checks: True = run the clipping / staging checks on these frames, False = skip them (a render's
+        frame jobs: one separate process checks the whole film instead), "film" = run them on the whole film."""
         self.look = get_look(type(self).look)
         self.q = dict(QUALITY[quality]) if isinstance(quality, str) else dict(quality)
         self.quality = quality
@@ -74,6 +80,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         self.rng = np.random.default_rng(self.seed)
         self._nodes, self._cuts, self._people, self._post, self._live = [], [], [], [], []
         self._frames = frames
+        self._film, self._checks = bool(film), checks
 
         bpy.ops.wm.read_factory_settings(use_empty=True)
         self.bscene = bpy.context.scene
@@ -88,6 +95,7 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         setup_render(self.bscene, self.look, self.q)
         setup_render(self.oscene, self.look, dict(self.q, samples=max(8, self.q["samples"] // 2), rt=False, motion_blur=False))
         self.oscene.render.film_transparent = True
+        self.oscene.eevee.use_shadows = False          # the overlay has no lights: skip the shadow system's setup
         self.oscene.world = bpy.data.worlds.new("umbra_overlay_world")
         setup_world(self.bscene, self.look)
         self.lights = setup_lights(self.bscene, self.look)
@@ -782,9 +790,9 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                     return True
         return False
 
-    def _preflight(self, B):
+    def _preflight(self, times):
         """Cheap checks that catch the usual staging mistakes before a single frame is rendered."""
-        ts = B.times[::max(1, len(B.times) // 40)]
+        ts = times[::max(1, len(times) // 40)]
         has_floor = self.floor is not None
         gz = getattr(self, "ground_z", None)
         for t in ts:
@@ -812,6 +820,33 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
             self.warn(f"render time: {n_sh} shadow-casting lights (each adds roughly 1 s per frame). Keep shadows on the 2-3 lights "
                       f"that shape the shot and pass shadow=False to the rest (s.light / s.lamp).")
 
+    def _shadow_modes(self):
+        """How shadows are drawn, decided once for the whole film (so it does not depend on which job renders a frame):
+        - no light casts a shadow (blueprint, paper): the shadow system is switched off. Same picture, bit for bit.
+        - every shadow caster is fully opaque for the whole film: solid shadows, drawn once per frame instead of once
+          per sample (see Materials._finish). The picture differs from the per-sample redraw by at most a level or
+          two of 255 on a fraction of a percent of pixels (shadow edges); `solid_shadows = False` keeps the redraw.
+        - any caster is ever see-through (fading props, glass with shadow=True, debris): everything as before."""
+        self.shadow_mode = "off"
+        if not any(o.type == "LIGHT" and o.data.use_shadow for o in self.bscene.objects):
+            self.bscene.eevee.use_shadows = False
+            return
+        see_through = not self.solid_shadows
+        for n in self._nodes:
+            o = n.obj
+            if see_through:
+                break
+            if o is None or n.is_overlay or o.type != "MESH" or not o.visible_shadow:
+                continue
+            see_through = (type(n).__name__ == "Particle" or n._alpha_animated() or n.eff_alpha(0.0) != 1.0
+                           or any(ms.material is not None and ms.material.use_transparent_shadow for ms in o.material_slots))
+        if not see_through:                              # things added behind umbra's back (s.model, raw bpy)
+            see_through = any(o.type == "MESH" and o.visible_shadow and o.color[3] != 1.0 for o in self.bscene.objects)
+        self.shadow_mode = "per sample" if see_through else "solid"
+        if see_through:
+            for m in bpy.data.materials:
+                m.use_transparent_shadow = True
+
     def _auto_cuts(self, times):
         """A camera that teleports without cam.cut() would smear across the frame; treat big jumps as cuts."""
         prev = None
@@ -830,12 +865,12 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
         self._warned = set()
         self._auto_cuts([(float(f) - 1.0) / self.fps for f in sorted(frames)])
         self._auto_layer()
-        if self.check_clipping:
+        if self.check_clipping and self._checks:
             try:
                 self._clip_check()
             except Exception as ex:                                  # a check must never stop a render
                 print("UMBRA_WARN clipping check skipped:", repr(ex))
-        B = Baker(self.fps, frames, self._cuts)
+        B = Baker(self.fps, frames, self._cuts, film=(self.n_frames + 1) if self._film else None)
         for fn in self._post:              # things that need the final camera / targets (labels...)
             fn(B)
         for p in self._people:
@@ -862,9 +897,13 @@ class Scene(OverlayMixin, KitMixin, FxMixin):
                 for nn, vals in (("ink_k", k), ("ink_k0", k0)):
                     nt.nodes[nn].outputs[0].default_value = vals[0]
                     B.scalar(nt, 'nodes["%s"].outputs[0].default_value' % nn, vals)
+        self._shadow_modes()
         from .look import aim_lights
         d = self.cam.pos.at(0.0) - self.cam.look.at(0.0)
         aim_lights(self.lights, self.look, math.degrees(math.atan2(d[0], d[1])))
-        self._preflight(B)
+        if self._checks == "film":
+            self._preflight([i / self.fps for i in range(self.n_frames + 1)])
+        elif self._checks:
+            self._preflight(B.times)
         self.baker = B
         return self

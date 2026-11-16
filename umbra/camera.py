@@ -238,7 +238,11 @@ class Camera:
             B.scalar(d, "dof.focus_distance", foc)
         # safeguard: depth precision. The near plane is pushed out as far as the nearest geometry allows
         # (precision ~ 1 / near), which is what keeps distant coplanar-ish surfaces from z-fighting.
-        near, far = self.scene._clip_range(B.times, locs)
+        if B.film_times is not None:                         # one chunk of a film: same planes as the whole film
+            near, far = self.scene._clip_range(B.film_times, [self.pos.at(t) for t in B.film_times])
+            near = near[B.film_slice]
+        else:
+            near, far = self.scene._clip_range(B.times, locs)
         d.clip_start = float(near[0])
         d.clip_end = float(far)
         B.scalar(d, "clip_start", near)

@@ -7,7 +7,7 @@
   python -m umbra blend  scenes/my.py            # export an editable .blend
   python -m umbra doctor                         # check Blender / ffmpeg / GPU
 """
-import argparse, glob, json, os, shutil, subprocess, sys, time, threading
+import argparse, glob, json, os, shutil, struct, subprocess, sys, tempfile, time, threading
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 ENTRY = os.path.join(ROOT, "umbra", "_entry.py")
@@ -41,11 +41,13 @@ def find_blender():
 
 
 _seen_warn = set()
+GPU_BACKEND = os.environ.get("UMBRA_GPU_BACKEND")      # "vulkan" | "opengl" | None = Blender's default (--gpu-backend)
 
 
 def run_blender(args, on_line=None, quiet=True):
     """Run one headless Blender job. Returns (returncode, umbra_lines, error_text)."""
-    cmd = [find_blender(), "-b", "--factory-startup", "--python-exit-code", "3", "--python", ENTRY, "--", json.dumps(args)]
+    cmd = [find_blender(), "-b", *(["--gpu-backend", GPU_BACKEND] if GPU_BACKEND else []), "--factory-startup",
+           "--python-exit-code", "3", "--python", ENTRY, "--", json.dumps(args)]
     p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
     lines, err, in_err, tail = [], [], False, []
     for line in p.stdout:
@@ -123,17 +125,18 @@ def cmd_still(a):
 
 def cmd_sheet(a):
     scene = os.path.abspath(a.scene)
-    meta = info(scene, a.cls)
-    t0_, t1_ = (a.range if a.range else (0.0, meta["duration"]))
-    n = a.n
-    times = [round(t0_ + (t1_ - t0_) * (i + 0.5) / n, 2) for i in range(n)] if not a.t else a.t
     d = _outdir(a)
     out = os.path.abspath(a.out or os.path.join(d, f"{_stem(scene)}_sheet.jpg"))
     t0 = time.time()
-    rc, lines, err = run_blender({"mode": "sheet", "scene": scene, "cls": a.cls, "times": times, "out": out,
-                                  "cols": a.cols, "scale": a.scale, "tmp": os.path.join(d, ".frames", _stem(scene) + "_sheet")})
+    rc, lines, err = run_blender({"mode": "sheet", "scene": scene, "cls": a.cls, "times": a.t, "n": a.n, "range": a.range,
+                                  "out": out, "cols": a.cols, "scale": a.scale,
+                                  "tmp": os.path.join(d, ".frames", _stem(scene) + "_sheet")})
     if rc != 0:
         _fail(err)
+    times = a.t or []
+    for ln in lines:
+        if ln.startswith("UMBRA_TIMES "):
+            times = json.loads(ln[len("UMBRA_TIMES "):])
     print(out)
     print(f"{len(times)} frames at t = {', '.join(str(t) for t in times)}  ({time.time() - t0:.0f}s)")
 
@@ -160,61 +163,227 @@ def cmd_blend(a):
 
 def cmd_render(a):
     scene = os.path.abspath(a.scene)
-    meta = info(scene, a.cls)
-    fps, dur = meta["fps"], meta["duration"]
-    n = int(round(dur * fps))
-    f0, f1 = 1, n
-    if a.range:
-        f0, f1 = int(round(a.range[0] * fps)) + 1, min(n, int(round(a.range[1] * fps)))
     d = _outdir(a)
     fdir = os.path.join(d, ".frames", f"{_stem(scene)}_{a.quality}")
     if os.path.isdir(fdir) and not a.resume:
         shutil.rmtree(fdir, ignore_errors=True)
     os.makedirs(fdir, exist_ok=True)
-    total = f1 - f0 + 1
-    jobs = max(1, min(a.jobs, total // 8 or 1))
-    bounds = [f0 + round(total * i / jobs) for i in range(jobs + 1)]
-    chunks = [(bounds[i], bounds[i + 1] - 1) for i in range(jobs) if bounds[i + 1] - 1 >= bounds[i]]
-    done = [0] * len(chunks)
-    counts = [0] * len(chunks)
-    errors = []
+    jobs = _fit_jobs(max(1, a.jobs))
+    done, counts = [0] * jobs, [0] * jobs
+    errors, meta = [], {}
+    ready = set(int(os.path.basename(f)[2:7]) for f in glob.glob(os.path.join(fdir, "f_*.tif")))   # --resume
+    out = os.path.abspath(a.out or os.path.join(d, f"{_stem(scene)}{'' if a.quality == 'final' else '_' + a.quality}.mp4"))
+    enc = None if a.safe else _LiveEncode(fdir, out, a, meta, ready)
     t0 = time.time()
     last = [t0]
     lock = threading.Lock()
 
-    def work(i, c):
+    def work(i):
         def on_line(line):
-            if line.startswith("UMBRA_FRAME"):
+            if line.startswith("UMBRA_INFO "):
+                with lock:
+                    if not meta:                      # every job reports the film it found; announce it once
+                        meta.update(json.loads(line[len("UMBRA_INFO "):]))
+                        print(f"rendering {meta['name']}  {meta['duration']:g}s @ {meta['fps']}fps  quality={a.quality}  "
+                              f"jobs={meta['jobs']}", flush=True)
+            elif line.startswith("UMBRA_FRAME"):
                 k, tot = line.split()[2].split("/")
                 with lock:
+                    ready.add(int(line.split()[1]))
                     done[i], counts[i] = int(k), int(tot)
                     now = time.time()
                     if now - last[0] > a.progress:
                         last[0] = now
-                        dn, tt = sum(done), sum(x or 1 for x in counts)
+                        dn, tt = sum(done), sum(x or max(counts) for x in counts[:meta.get("jobs", jobs)])
                         el = now - t0
                         print(f"  {dn}/{tt} frames  {el:.0f}s elapsed, ~{el / max(dn, 1) * (tt - dn):.0f}s left", flush=True)
-        rc, lines, err = run_blender({"mode": "frames", "scene": scene, "cls": a.cls, "quality": a.quality,
-                                      "f0": c[0], "f1": c[1], "dir": fdir, "resume": a.resume}, on_line)
+        rc, lines, err = run_blender({"mode": "frames", "scene": scene, "cls": a.cls, "quality": a.quality, "range": a.range,
+                                      "job": i, "jobs": jobs, "dir": fdir, "resume": a.resume, "safe": a.safe}, on_line)
         if rc != 0:
             errors.append(err)
 
-    print(f"rendering {meta['name']}  {dur:g}s @ {fps}fps  quality={a.quality}  jobs={len(chunks)}", flush=True)
-    threads = [threading.Thread(target=work, args=(i, c)) for i, c in enumerate(chunks)]
+    def check():                                      # the staging checks, next to the frame jobs instead of inside each
+        run_blender({"mode": "check", "scene": scene, "cls": a.cls})
+
+    threads = [threading.Thread(target=work, args=(i,)) for i in range(jobs)]
+    if not a.safe:
+        threads.append(threading.Thread(target=check))
     for t in threads:
         t.start()
+    if enc:
+        enc.start()
     for t in threads:
         t.join()
     if errors:
+        if enc:
+            enc.finish(abort=True)
         _fail(errors[0])
-    out = os.path.abspath(a.out or os.path.join(d, f"{_stem(scene)}{'' if a.quality == 'final' else '_' + a.quality}.mp4"))
-    encode(fdir, out, fps, meta, a)
+    encoded = bool(enc) and enc.finish()             # every frame was already fed to ffmpeg while the jobs rendered
+    for attempt in range(0 if encoded else 2):                          # a frame whose file is cut short is rendered again, not encoded
+        bad = _bad_frames(fdir)
+        if not bad:
+            break
+        print(f"warning: {len(bad)} frame file(s) incomplete on disk ({bad[:8]}{'...' if len(bad) > 8 else ''}) - rendering them again",
+              flush=True)
+        for f in bad:
+            for p in glob.glob(os.path.join(fdir, f"f_{f:05d}.*")):
+                os.remove(p)
+        rc, lines, err = run_blender({"mode": "frames", "scene": scene, "cls": a.cls, "quality": a.quality, "only": bad,
+                                      "dir": fdir, "safe": a.safe})
+        if rc != 0:
+            _fail(err)
+    fps = meta["fps"]
+    if not encoded:
+        encode(fdir, out, fps, meta, a)
     if not a.keep_frames:
         shutil.rmtree(fdir, ignore_errors=True)
     if not a.range:
         _print_flicker(out, fps)
     print(out)
     print(f"done in {time.time() - t0:.0f}s")
+
+
+def _fit_jobs(jobs):
+    """Parallel jobs share one GPU's memory. Past what fits, the driver starts paging video memory and a render gets
+    several times SLOWER (measured: 4 jobs on a card with 4.8 GB free took 5x as long as 2). So the job count is cut
+    to what the free video memory holds; without nvidia-smi the number asked for is used as is."""
+    try:
+        r = subprocess.run(["nvidia-smi", "--query-gpu=memory.total,memory.used", "--format=csv,noheader,nounits"],
+                           capture_output=True, text=True, timeout=10)
+        total, used = (float(x) for x in r.stdout.strip().splitlines()[0].split(","))
+    except Exception:
+        return jobs
+    fit = max(1, int((total - used - 400.0) // JOB_VRAM_MB))
+    if fit < jobs:
+        print(f"note: {total - used:.0f} MB of video memory free, about {JOB_VRAM_MB} MB per job: running {fit} job"
+              f"{'s' if fit != 1 else ''} instead of {jobs} (more would page video memory and be slower)", flush=True)
+    return min(jobs, fit)
+
+
+JOB_VRAM_MB = 1700            # peak of one 1080p job (measured 1.57 GB); most of it does not depend on the scene
+
+
+def _bad_frames(fdir):
+    """Frame numbers whose file on disk is not whole. Uncompressed TIFF frames of one render all have the same size,
+    so anything else was cut short while it was being written."""
+    files = sorted(glob.glob(os.path.join(fdir, "f_*.tif")))
+    if len(files) < 3:
+        return []
+    sizes = [os.path.getsize(f) for f in files]
+    usual = max(set(sizes), key=sizes.count)
+    return [int(os.path.basename(f)[2:7]) for f, sz in zip(files, sizes) if sz != usual]
+
+
+def _tiff_rgb(path):
+    """(width, height, rgb24 bytes) of a frame as the jobs write it (uncompressed 8-bit RGB TIFF, rows top to bottom),
+    or None if the file is anything else - including a file that is not all there."""
+    try:
+        with open(path, "rb") as fh:
+            b = fh.read()
+        bo = {b"II": "<", b"MM": ">"}[b[:2]]
+        if struct.unpack(bo + "H", b[2:4])[0] != 42:
+            return None
+        off = struct.unpack(bo + "I", b[4:8])[0]
+        tags = {}
+        for i in range(struct.unpack(bo + "H", b[off:off + 2])[0]):
+            e = b[off + 2 + 12 * i:off + 14 + 12 * i]
+            tag, typ, cnt = struct.unpack(bo + "HHI", e[:8])
+            size = {1: 1, 3: 2, 4: 4}.get(typ)
+            if size is None:
+                continue
+            raw = e[8:8 + size * cnt] if size * cnt <= 4 else b[struct.unpack(bo + "I", e[8:12])[0]:][:size * cnt]
+            tags[tag] = struct.unpack(bo + {1: "B", 3: "H", 4: "I"}[typ] * cnt, raw)
+        w, h = tags[256][0], tags[257][0]
+        if (tags.get(259, (1,))[0] != 1 or tags.get(277, (0,))[0] != 3 or tuple(tags.get(258, ())) != (8, 8, 8)
+                or tags.get(284, (1,))[0] != 1 or tags.get(274, (1,))[0] != 1 or tags.get(262, (2,))[0] != 2):
+            return None
+        px = b"".join(b[o:o + n] for o, n in zip(tags[273], tags[279]))
+        return (w, h, px) if len(px) == w * h * 3 else None
+    except Exception:
+        return None
+
+
+class _LiveEncode:
+    """Feeds finished frames to ffmpeg, in film order, while the jobs are still rendering, so the encode does not
+    start from zero when the last frame lands. ffmpeg gets the frames' own rgb24 pixels and the same filters and
+    codec settings as encode(); the video stream it writes is the same, frame for frame. If a frame on disk is not
+    whole, or ffmpeg stops, this gives up quietly and render falls back to checking the frames and encode()."""
+
+    def __init__(self, fdir, out, a, meta, ready):
+        self.fdir, self.out, self.a, self.meta, self.ready = fdir, out, a, meta, ready
+        self.ok, self.closing, self.fed, self.started = True, False, 0, False
+        self.thread = threading.Thread(target=self._run, daemon=True)
+        self.proc = self.log = self.size = None
+
+    def start(self):
+        if _ffmpeg():
+            self.started = True
+            self.thread.start()
+        else:
+            self.ok = False
+
+    def _run(self):
+        try:
+            while "frames" not in self.meta:                       # the jobs have not said what film this is yet
+                if self.closing:
+                    self.ok = False
+                    return
+                time.sleep(0.1)
+            (f0, f1), step = self.meta["frames"], self.meta.get("step", 1)
+            rate = self.meta["fps"] / step
+            for f in (f for f in range(f0, f1 + 1) if (f - 1) % step == 0):
+                while f not in self.ready and not self.closing:    # once the jobs are done it is there now or never
+                    time.sleep(0.05)
+                fr = _tiff_rgb(os.path.join(self.fdir, f"f_{f:05d}.tif"))
+                if fr is None or (self.size is not None and fr[:2] != self.size):
+                    self.ok = False
+                    return
+                if self.proc is None:
+                    self.size = fr[:2]
+                    self.log = tempfile.TemporaryFile()
+                    self.proc = subprocess.Popen(
+                        [_ffmpeg(), "-y", "-loglevel", "error", "-r", f"{rate:g}", "-f", "rawvideo", "-pix_fmt", "rgb24",
+                         "-s", f"{fr[0]}x{fr[1]}", "-i", "-", *_encode_args(rate, self.meta, self.a), self.out],
+                        stdin=subprocess.PIPE, stdout=self.log, stderr=self.log)
+                self.proc.stdin.write(fr[2])
+                self.fed += 1
+            if self.proc is None:
+                self.ok = False
+                return
+            self.proc.stdin.close()
+            self.ok = self.proc.wait() == 0
+        except Exception:
+            self.ok = False
+
+    def finish(self, abort=False):
+        """Wait for the encode to end. True = the mp4 is written."""
+        self.closing = True
+        if abort:
+            self.ok = False
+            if self.proc is not None and self.proc.poll() is None:
+                self.proc.kill()
+        if self.started:
+            self.thread.join()
+        if not self.ok and self.proc is not None and self.proc.poll() is None:
+            self.proc.kill()
+        if self.log:
+            self.log.close()
+        return self.ok and self.fed > 0
+
+
+def _encode_args(rate, meta, a):
+    """Filters and codec settings of the final mp4 (shared by the two ways of feeding ffmpeg)."""
+    grain = meta.get("grain", 0) if a.grain is None else a.grain
+    vf = []
+    if grain > 0:
+        vf.append(f"noise=alls={grain}:allf=t+u")
+    vf.append("scale=out_color_matrix=bt709:flags=lanczos,format=yuv420p")
+    if a.nvenc:
+        codec = ["-c:v", "h264_nvenc", "-preset", "p7", "-rc", "vbr", "-cq", "17", "-b:v", "0"]
+    else:
+        codec = ["-c:v", "libx264", "-preset", "slow", "-crf", str(a.crf), "-tune", "film"]
+    return ["-vf", ",".join(vf), *codec, "-r", f"{rate:g}", "-colorspace", "bt709", "-color_primaries", "bt709",
+            "-color_trc", "bt709", "-movflags", "+faststart"]
 
 
 def _ffmpeg():
@@ -289,7 +458,8 @@ def encode(fdir, out, fps, meta, a):
     ff = _ffmpeg()
     if not ff:
         sys.exit(f"umbra: frames are in {fdir} but ffmpeg was not found. Install ffmpeg (or `pip install imageio-ffmpeg`).")
-    frames = sorted(glob.glob(os.path.join(fdir, "f_*.png")))
+    frames = sorted(glob.glob(os.path.join(fdir, "f_*.tif")) + glob.glob(os.path.join(fdir, "f_*.png")),
+                    key=os.path.basename)
     if not frames:
         sys.exit("umbra: no frames rendered")
     nums = [int(os.path.basename(f)[2:7]) for f in frames]
@@ -299,18 +469,8 @@ def encode(fdir, out, fps, meta, a):
         for f in frames:
             fh.write("file '" + f.replace(os.sep, "/") + "'\n")
     rate = fps / step
-    grain = meta.get("grain", 0) if a.grain is None else a.grain
-    vf = []
-    if grain > 0:
-        vf.append(f"noise=alls={grain}:allf=t+u")
-    vf.append("scale=out_color_matrix=bt709:flags=lanczos,format=yuv420p")
-    if a.nvenc:
-        codec = ["-c:v", "h264_nvenc", "-preset", "p7", "-rc", "vbr", "-cq", "17", "-b:v", "0"]
-    else:
-        codec = ["-c:v", "libx264", "-preset", "slow", "-crf", str(a.crf), "-tune", "film"]
     cmd = [ff, "-y", "-loglevel", "error", "-r", f"{rate:g}", "-f", "concat", "-safe", "0", "-i", lst,
-           "-vf", ",".join(vf), *codec, "-r", f"{rate:g}", "-colorspace", "bt709", "-color_primaries", "bt709",
-           "-color_trc", "bt709", "-movflags", "+faststart", out]
+           *_encode_args(rate, meta, a), out]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         sys.exit("umbra: ffmpeg failed\n" + r.stderr[-1500:])
@@ -376,7 +536,8 @@ def main(argv=None):
     def common(p, q="final"):
         p.add_argument("scene", help="path to a scene .py file")
         p.add_argument("--cls", help="Scene class name (default: last one in the file)")
-        p.add_argument("-q", "--quality", default=q, choices=["draft", "preview", "final", "ultra"])
+        p.add_argument("-q", "--quality", default=q, choices=["draft", "preview", "fast", "final", "ultra"])
+        p.add_argument("--gpu-backend", choices=["opengl", "vulkan"], help="Blender GPU backend (default: Blender's own)")
         p.add_argument("-o", "--out", help="output file")
         p.add_argument("--out-dir", help="output directory (default ./out)")
         p.add_argument("-v", "--verbose", action="store_true")
@@ -391,6 +552,7 @@ def main(argv=None):
     p.add_argument("--grain", type=int, default=None, help="override look grain (0-12)")
     p.add_argument("--nvenc", action="store_true", help="encode with NVIDIA NVENC instead of x264")
     p.add_argument("--progress", type=float, default=20.0, help="seconds between progress lines")
+    p.add_argument("--safe", action="store_true", help="rebuild everything for every frame (the slow plain path; for comparing)")
     p.set_defaults(fn=cmd_render)
 
     p = sub.add_parser("still", help="render single frames")
@@ -427,4 +589,7 @@ def main(argv=None):
     p.set_defaults(fn=cmd_doctor)
 
     a = ap.parse_args(argv)
+    if getattr(a, "gpu_backend", None):
+        global GPU_BACKEND
+        GPU_BACKEND = a.gpu_backend
     a.fn(a)
